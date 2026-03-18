@@ -1,0 +1,12 @@
+{
+    "name": "Fra",
+    "country": "South Africa",
+    "skills": [
+        "Python",
+        "FastAPI",
+        "AI APIs",
+        "Kubernetes"
+    ],
+    "repos": 21,
+    "learning": "AI Engineering"
+}
