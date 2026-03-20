@@ -1,12 +1,7 @@
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
-import groq
+from groq import Groq
 import os
-import chromadb
-from sentence_transformers import SentenceTransformer
-from pypdf import PdfReader
-from docx import Document
-import io
 import uuid
 
 app = FastAPI(title="BotBase API")
@@ -18,28 +13,38 @@ app.add_middleware(
     allow_headers=["*"]
 )
 
-client = groq.Groq(api_key=os.environ.get("GROQ_API_KEY"))
-embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
-chroma_client = chromadb.Client()
-
+client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 businesses = {}
 
 def extract_text(file_bytes, filename):
     if filename.endswith(".pdf"):
-        reader = PdfReader(io.BytesIO(file_bytes))
+        import pypdf, io
+        reader = pypdf.PdfReader(io.BytesIO(file_bytes))
         return "\n".join([page.extract_text() for page in reader.pages])
     elif filename.endswith(".docx"):
+        from docx import Document
+        import io
         doc = Document(io.BytesIO(file_bytes))
         return "\n".join([p.text for p in doc.paragraphs])
     else:
         return file_bytes.decode("utf-8")
 
-def chunk_text(text, chunk_size=500):
+def chunk_text(text, chunk_size=300):
     words = text.split()
     chunks = []
     for i in range(0, len(words), chunk_size):
         chunks.append(" ".join(words[i:i+chunk_size]))
     return chunks
+
+def find_relevant_chunks(question, chunks, top_n=3):
+    question_words = set(question.lower().split())
+    scored = []
+    for chunk in chunks:
+        chunk_words = set(chunk.lower().split())
+        score = len(question_words & chunk_words)
+        scored.append((score, chunk))
+    scored.sort(reverse=True)
+    return [chunk for _, chunk in scored[:top_n]]
 
 @app.get("/")
 def home():
@@ -63,23 +68,11 @@ async def upload_document(
         file_bytes = await file.read()
         text = extract_text(file_bytes, file.filename)
         chunks = chunk_text(text)
-
         business_id = business_name.lower().replace(" ", "_")
-
-        if business_id not in businesses:
-            businesses[business_id] = {
-                "name": business_name,
-                "collection": chroma_client.create_collection(f"bot_{business_id}_{uuid.uuid4().hex[:8]}")
-            }
-
-        collection = businesses[business_id]["collection"]
-        embeddings = embedding_model.encode(chunks).tolist()
-        collection.add(
-            documents=chunks,
-            embeddings=embeddings,
-            ids=[f"chunk_{i}" for i in range(len(chunks))]
-        )
-
+        businesses[business_id] = {
+            "name": business_name,
+            "chunks": chunks
+        }
         return {
             "status": "success",
             "business": business_name,
@@ -99,25 +92,22 @@ async def chat(
         if business_id not in businesses:
             return {"status": "error", "message": "Business not found. Upload documents first."}
 
-        collection = businesses[business_id]["collection"]
         business_name = businesses[business_id]["name"]
-
-        question_embedding = embedding_model.encode([message]).tolist()
-        results = collection.query(query_embeddings=question_embedding, n_results=3)
-        context = "\n".join(results["documents"][0])
+        chunks = businesses[business_id]["chunks"]
+        relevant = find_relevant_chunks(message, chunks)
+        context = "\n".join(relevant)
 
         response = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=[
                 {"role": "system", "content": f"""You are a customer support assistant for {business_name}.
-Answer questions using ONLY this information:
+Answer using ONLY this information:
 {context}
-If the answer is not in the information provided, say: 'I don't have that information. Please contact us directly.'
-Be friendly, helpful and concise."""},
+If the answer is not here, say: 'I don't have that info. Please contact us directly.'
+Be friendly and concise."""},
                 {"role": "user", "content": message}
             ]
         )
-
         return {
             "status": "success",
             "business": business_name,
