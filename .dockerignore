@@ -2,7 +2,12 @@ __pycache__
 *.pyc
 .env
 .git
+.gitignore
 *.md
 .DS_Store
-ai_memory.json
-*_report.json
+user_data.json
+*.log
+*.db
+*.sqlite
+__pycache__/
+*.pyc
