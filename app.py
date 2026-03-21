@@ -1,17 +1,20 @@
-from fastapi import FastAPI
+from flask import Flask, jsonify
 import os
 
-app = FastAPI()
+app = Flask(__name__)
 
-@app.get("/")
-def read_root():
-    return {"message": "AI Engineer Portfolio", "status": "running"}
+@app.route('/')
+def home():
+    return jsonify({
+        "status": "running",
+        "message": "AI Engineer Portfolio",
+        "timestamp": "2026-03-21"
+    })
 
-@app.get("/health")
+@app.route('/health')
 def health():
-    return {"status": "ok"}
+    return "OK", 200
 
-if __name__ == "__main__":
-    import uvicorn
-    port = int(os.environ.get("PORT", 8000))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 8000))
+    app.run(host='0.0.0.0', port=port)
