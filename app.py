@@ -1,5 +1,7 @@
 import os
+import sys
 import uuid
+import traceback
 from flask import Flask, jsonify, request
 from datetime import datetime
 from collections import defaultdict
@@ -12,96 +14,82 @@ documents = {}
 bookings = {}
 orders = {}
 
-# ============ GROQ AI INTEGRATION - FIXED ============
+# ============ GROQ AI INTEGRATION ============
 print("=" * 60)
-print("Initializing BotBase with Groq AI")
+print("BotBase Startup - Groq AI Integration")
 print("=" * 60)
 
-# Get API key
-api_key = os.environ.get("GROQ_API_KEY", "")
-print(f"1. GROQ_API_KEY found: {'YES' if api_key else 'NO'}")
-print(f"2. API Key length: {len(api_key)} characters")
+# Get API key from environment
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+print(f"✓ API Key found: {'Yes' if GROQ_API_KEY else 'No'}")
+print(f"✓ API Key length: {len(GROQ_API_KEY)}")
 
-# Initialize Groq client
+# Initialize Groq
 groq_client = None
-GROQ_AVAILABLE = False
 
 try:
+    # Import Groq
     from groq import Groq
-    GROQ_AVAILABLE = True
-    print("3. Groq library imported: YES")
+    print("✓ Groq library imported successfully")
+    
+    # Initialize client
+    groq_client = Groq(api_key=GROQ_API_KEY)
+    print("✓ Groq client created successfully")
+    
+    # Test the client
+    test_response = groq_client.chat.completions.create(
+        model="mixtral-8x7b-32768",
+        messages=[{"role": "user", "content": "Say 'OK'"}],
+        max_tokens=5,
+        temperature=0
+    )
+    print("✓ Groq API test passed")
+    print(f"✓ Test response: {test_response.choices[0].message.content}")
+    
 except ImportError as e:
-    print(f"3. Groq library imported: NO - {e}")
-
-if api_key and GROQ_AVAILABLE:
-    try:
-        print("4. Attempting to initialize Groq client...")
-        groq_client = Groq(api_key=api_key)
-        print("5. ✅ Groq client initialized SUCCESSFULLY!")
-        
-        # Test the client with a simple request
-        try:
-            test_completion = groq_client.chat.completions.create(
-                model="mixtral-8x7b-32768",
-                messages=[{"role": "user", "content": "Say 'Groq is working'"}],
-                max_tokens=10
-            )
-            print("6. ✅ Groq API test passed!")
-        except Exception as e:
-            print(f"6. ⚠️ Groq API test failed: {e}")
-            
-    except Exception as e:
-        print(f"5. ❌ Groq client initialization FAILED: {e}")
-else:
-    print(f"4. Cannot initialize Groq. API Key present: {bool(api_key)}, Library: {GROQ_AVAILABLE}")
+    print(f"✗ Failed to import Groq: {e}")
+    traceback.print_exc()
+except Exception as e:
+    print(f"✗ Groq initialization failed: {e}")
+    traceback.print_exc()
+    groq_client = None
 
 print("=" * 60)
+print(f"Final Groq Status: {'✅ ENABLED' if groq_client else '❌ DISABLED'}")
+print("=" * 60)
 
-class GroqAIService:
-    def chat(self, message, context=""):
-        if not groq_client:
-            return None
+def get_ai_response(message, context=""):
+    """Get AI response from Groq"""
+    if not groq_client:
+        return None
+    
+    try:
+        # Build the prompt
+        system_prompt = """You are BotBase, an AI assistant for South African businesses.
+        Help customers with:
+        - Booking appointments
+        - Placing orders  
+        - Answering questions about the business
+        Be friendly, professional, and keep responses concise."""
         
-        try:
-            system_prompt = """You are BotBase, an AI assistant for South African businesses. 
-            Help customers with booking appointments, placing orders, and answering questions.
-            Be friendly, professional, and concise."""
-            
-            user_message = f"{context}\nCustomer: {message}" if context else message
-            
-            completion = groq_client.chat.completions.create(
-                model="mixtral-8x7b-32768",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_message}
-                ],
-                temperature=0.7,
-                max_tokens=500
-            )
-            
-            return completion.choices[0].message.content
-            
-        except Exception as e:
-            print(f"Groq API error: {e}")
-            return None
-
-groq_service = GroqAIService()
-
-# ============ ANALYTICS ============
-class AnalyticsSystem:
-    def __init__(self):
-        self.metrics = {
-            "total_tasks": 0,
-            "successful_tasks": 0,
-            "failed_tasks": 0,
-            "avg_response_time": 0,
-            "total_response_time": 0,
-            "tasks_by_type": defaultdict(int),
-            "tasks_by_bot": defaultdict(int)
-        }
-        self.task_history = []
-
-analytics = AnalyticsSystem()
+        user_prompt = f"{context}\nCustomer: {message}" if context else message
+        
+        # Call Groq API
+        completion = groq_client.chat.completions.create(
+            model="mixtral-8x7b-32768",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            temperature=0.7,
+            max_tokens=500
+        )
+        
+        return completion.choices[0].message.content
+        
+    except Exception as e:
+        print(f"Groq API error: {e}")
+        return None
 
 # ============ ENDPOINTS ============
 @app.route('/')
@@ -111,7 +99,8 @@ def home():
         "version": "2.0.0",
         "status": "active",
         "groq_ai": groq_client is not None,
-        "agents": ["Upload", "Analysis", "RAG", "Action", "Orchestrator"]
+        "agents": ["Upload", "Analysis", "RAG", "Action", "Orchestrator"],
+        "message": "Your AI Business Assistant is ready!"
     })
 
 @app.route('/health')
@@ -121,11 +110,10 @@ def health():
 @app.route('/api/ai/status')
 def ai_status():
     return jsonify({
-        "groq_available": GROQ_AVAILABLE,
         "groq_configured": groq_client is not None,
-        "api_key_set": bool(api_key),
-        "api_key_length": len(api_key),
-        "message": "✅ Groq AI is ready!" if groq_client else "❌ Groq not configured. Check logs for details."
+        "api_key_exists": bool(GROQ_API_KEY),
+        "api_key_length": len(GROQ_API_KEY),
+        "message": "✅ Groq AI is ready!" if groq_client else "❌ Groq not configured"
     })
 
 @app.route('/api/ai/chat', methods=['POST'])
@@ -138,16 +126,26 @@ def ai_chat():
     if business_id and business_id in businesses:
         business = businesses[business_id]
         context = f"Business: {business['name']} ({business.get('type', 'general')})"
+        if business_id in documents and documents[business_id]:
+            context += f". Has {len(documents[business_id])} documents uploaded"
     
-    response = groq_service.chat(message, context)
+    response = get_ai_response(message, context)
     
     if not response:
-        response = "I'm here to help! You can ask me about bookings, orders, or anything about the business."
+        # Fallback responses
+        if "book" in message.lower() or "appointment" in message.lower():
+            response = "I can help you book an appointment. Please provide your preferred date and time."
+        elif "order" in message.lower():
+            response = "I can help you place an order. What items would you like to order?"
+        elif "menu" in message.lower():
+            response = "Please upload your menu documents so I can help customers with specific items."
+        else:
+            response = "How can I help you today? I can assist with bookings, orders, or answer questions."
     
     return jsonify({
         "success": True,
         "response": response,
-        "ai_provider": "groq" if groq_client else "fallback"
+        "ai_used": groq_client is not None
     })
 
 @app.route('/api/business/register', methods=['POST'])
@@ -166,7 +164,8 @@ def register_business():
     return jsonify({
         "success": True,
         "business_id": business_id,
-        "message": f"Business {data.get('name')} registered"
+        "message": f"✅ Business {data.get('name')} registered successfully!",
+        "api_key": f"bb_{business_id}"
     })
 
 @app.route('/api/business/<business_id>/query', methods=['POST'])
@@ -179,13 +178,15 @@ def query_business(business_id):
     business = businesses[business_id]
     
     context = f"Business: {business['name']} ({business.get('type', 'general')})"
-    response = groq_service.chat(question, context)
+    response = get_ai_response(question, context)
     
     if not response:
         if "menu" in question.lower():
-            response = f"Please upload your menu documents so I can help customers with specific items from {business['name']}."
+            response = f"Please upload your menu documents for specific details about {business['name']}."
         elif "book" in question.lower():
             response = f"I can help you book at {business['name']}. What date and time works for you?"
+        elif "price" in question.lower():
+            response = f"For pricing information about {business['name']}, please upload your price list."
         else:
             response = f"How can I help you with {business['name']} today?"
     
@@ -210,17 +211,23 @@ def book_appointment(business_id):
         "customer": data.get('customer_name'),
         "date": data.get('date'),
         "time": data.get('time'),
-        "status": "confirmed"
+        "service": data.get('service', 'General'),
+        "status": "confirmed",
+        "created_at": datetime.now().isoformat()
     }
     
     if business_id not in bookings:
         bookings[business_id] = []
     bookings[business_id].append(booking)
     
+    # Generate confirmation message
+    message = f"✅ Booking confirmed for {booking['customer']} on {booking['date']} at {booking['time']}"
+    
     return jsonify({
         "success": True,
         "booking_id": booking_id,
-        "message": f"✅ Booking confirmed for {booking['customer']} on {booking['date']} at {booking['time']}"
+        "message": message,
+        "details": booking
     })
 
 @app.route('/api/business/<business_id>/order', methods=['POST'])
@@ -239,7 +246,9 @@ def place_order(business_id):
         "customer": data.get('customer_name'),
         "items": items,
         "total": total,
-        "status": "confirmed"
+        "delivery_address": data.get('delivery_address', ''),
+        "status": "confirmed",
+        "created_at": datetime.now().isoformat()
     }
     
     if business_id not in orders:
@@ -250,7 +259,8 @@ def place_order(business_id):
         "success": True,
         "order_id": order_id,
         "total": total,
-        "message": f"✅ Order confirmed! Total: R{total}"
+        "message": f"✅ Order confirmed! Total: R{total}",
+        "details": order
     })
 
 @app.route('/api/business/<business_id>/upload', methods=['POST'])
@@ -271,8 +281,12 @@ def upload_document(business_id):
         "id": doc_id,
         "filename": file.filename,
         "type": file.filename.split('.')[-1],
+        "size": len(file.read()) if file else 0,
         "uploaded_at": datetime.now().isoformat()
     }
+    
+    # Reset file pointer
+    file.seek(0)
     documents[business_id].append(doc_info)
     
     return jsonify({
@@ -302,23 +316,17 @@ def get_business(business_id):
 
 @app.route('/api/analytics')
 def get_analytics():
-    return jsonify(analytics.metrics)
+    return jsonify({
+        "total_businesses": len(businesses),
+        "total_documents": sum(len(docs) for docs in documents.values()),
+        "total_bookings": sum(len(books) for books in bookings.values()),
+        "total_orders": sum(len(ords) for ords in orders.values()),
+        "groq_enabled": groq_client is not None
+    })
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8000))
     print(f"\n🚀 BotBase starting on port {port}")
     print(f"🤖 Groq AI: {'✅ ENABLED' if groq_client else '❌ DISABLED'}")
-    print(f"📊 API Key Status: {'Present' if api_key else 'Missing'}")
-    print("\n" + "=" * 60)
+    print(f"📊 Ready to serve businesses!\n")
     app.run(host='0.0.0.0', port=port)
-
-@app.route('/api/debug/groq')
-def debug_groq():
-    import os
-    return jsonify({
-        "api_key_exists": "GROQ_API_KEY" in os.environ,
-        "api_key_length": len(os.environ.get("GROQ_API_KEY", "")),
-        "groq_client_exists": groq_client is not None,
-        "python_path": os.environ.get("PYTHONPATH", ""),
-        "all_env_vars": [k for k in os.environ.keys() if "GROQ" in k or "API" in k]
-    })
