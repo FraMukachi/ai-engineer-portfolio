@@ -1,15 +1,6 @@
 FROM python:3.11-slim
-
 WORKDIR /app
-
-# Copy requirements first
 COPY requirements.txt .
-
-# Install dependencies
-RUN pip install --no-cache-dir flask gunicorn groq
-
-# Copy application
+RUN pip install flask
 COPY app.py .
-
-# Run the app - use 8000 directly, Railway will map it
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "app:app"]
+CMD ["python", "app.py"]
