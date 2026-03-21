@@ -11,5 +11,5 @@ RUN pip install --no-cache-dir flask gunicorn groq
 # Copy application
 COPY app.py .
 
-# Run the app
+# Run the app - use 8000 directly, Railway will map it
 CMD ["gunicorn", "--bind", "0.0.0.0:8000", "app:app"]
