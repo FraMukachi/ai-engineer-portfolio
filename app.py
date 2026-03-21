@@ -159,3 +159,46 @@ def list_businesses():
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8000))
     app.run(host='0.0.0.0', port=port)
+
+@app.route('/api/debug/groq-init')
+def debug_groq_init():
+    import traceback
+    import sys
+    
+    debug_info = {
+        "api_key_exists": "GROQ_API_KEY" in os.environ,
+        "api_key_length": len(os.environ.get("GROQ_API_KEY", "")),
+        "groq_client_exists": groq_client is not None,
+        "python_version": sys.version,
+        "tried_import": False,
+        "import_error": None
+    }
+    
+    # Try to import and init again for debugging
+    try:
+        from groq import Groq
+        debug_info["import_success"] = True
+        test_key = os.environ.get("GROQ_API_KEY")
+        if test_key:
+            test_client = Groq(api_key=test_key)
+            debug_info["client_created"] = True
+            # Try a simple test
+            try:
+                test = test_client.chat.completions.create(
+                    model="mixtral-8x7b-32768",
+                    messages=[{"role": "user", "content": "OK"}],
+                    max_tokens=2
+                )
+                debug_info["api_test"] = "passed"
+                debug_info["test_response"] = test.choices[0].message.content
+            except Exception as e:
+                debug_info["api_test"] = f"failed: {str(e)}"
+        else:
+            debug_info["client_created"] = False
+            debug_info["error"] = "No API key"
+    except Exception as e:
+        debug_info["import_success"] = False
+        debug_info["import_error"] = str(e)
+        debug_info["traceback"] = traceback.format_exc()
+    
+    return jsonify(debug_info)
