@@ -553,3 +553,263 @@ def get_business(business_id):
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8000))
     app.run(host='0.0.0.0', port=port)
+
+# ============ GROQ AI INTEGRATION ============
+try:
+    from groq import Groq
+    GROQ_AVAILABLE = True
+except ImportError:
+    GROQ_AVAILABLE = False
+    print("Groq not installed. Install with: pip install groq")
+
+class GroqAIService:
+    """Intelligent AI responses using Groq"""
+    
+    def __init__(self):
+        self.client = None
+        self.api_key = os.environ.get("GROQ_API_KEY", "")
+        
+        if GROQ_AVAILABLE and self.api_key:
+            try:
+                self.client = Groq(api_key=self.api_key)
+                print("Groq AI service initialized")
+            except Exception as e:
+                print(f"Groq initialization failed: {e}")
+                self.client = None
+    
+    def chat(self, message, context=""):
+        """Get AI response from Groq"""
+        if not self.client:
+            return None
+        
+        try:
+            system_prompt = """You are BotBase, an AI assistant for South African businesses. 
+            You help customers with:
+            - Booking appointments
+            - Placing orders  
+            - Answering questions about the business
+            - Providing information from business documents
+            
+            Be friendly, professional, and helpful. Keep responses concise."""
+            
+            user_prompt = f"{context}\n\nCustomer: {message}"
+            
+            completion = self.client.chat.completions.create(
+                model="mixtral-8x7b-32768",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.7,
+                max_tokens=500
+            )
+            
+            return completion.choices[0].message.content
+            
+        except Exception as e:
+            analytics.log_error("groq_error", str(e))
+            return None
+    
+    def analyze_document(self, content):
+        """Use Groq to analyze document content"""
+        if not self.client:
+            return None
+        
+        try:
+            prompt = f"""Analyze this business document and extract:
+            1. Key services or products
+            2. Prices mentioned
+            3. Contact information
+            4. Business hours
+            5. Important policies
+            
+            Document content: {content[:2000]}
+            
+            Return as JSON format."""
+            
+            completion = self.client.chat.completions.create(
+                model="mixtral-8x7b-32768",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.3,
+                max_tokens=800
+            )
+            
+            return completion.choices[0].message.content
+            
+        except Exception as e:
+            analytics.log_error("groq_analysis_error", str(e))
+            return None
+
+# Initialize Groq service
+groq_service = GroqAIService()
+
+# ============ ENHANCED ENDPOINTS WITH GROQ ============
+
+@app.route('/api/ai/chat', methods=['POST'])
+def ai_chat():
+    """AI chat endpoint using Groq"""
+    data = request.get_json()
+    message = data.get('message', '')
+    business_id = data.get('business_id')
+    
+    # Build context
+    context = ""
+    if business_id and business_id in businesses:
+        business = businesses[business_id]
+        context = f"Business: {business['name']} ({business.get('type', 'general')})"
+        
+        # Add document context if available
+        if business_id in documents and documents[business_id]:
+            context += f"\nHas {len(documents[business_id])} documents uploaded."
+    
+    # Try Groq first
+    response = groq_service.chat(message, context)
+    
+    if not response:
+        # Fallback responses
+        if "book" in message.lower() or "appointment" in message.lower():
+            response = "I can help you book an appointment. Please provide your preferred date and time."
+        elif "order" in message.lower():
+            response = "I can help you place an order. What items would you like to order?"
+        elif "menu" in message.lower():
+            response = "Please upload your menu documents so I can help customers with specific items."
+        else:
+            response = f"How can I help you today? I can assist with bookings, orders, or answer questions about the business."
+    
+    # Log interaction
+    task_id = str(uuid.uuid4())[:8]
+    analytics.log_task_start(task_id, "ai_chat", "groq" if groq_service.client else "fallback")
+    
+    return jsonify({
+        "success": True,
+        "response": response,
+        "ai_provider": "groq" if groq_service.client else "fallback",
+        "context_used": business_id is not None
+    })
+
+@app.route('/api/ai/analyze-document', methods=['POST'])
+def ai_analyze_document():
+    """Analyze uploaded document with Groq"""
+    data = request.get_json()
+    business_id = data.get('business_id')
+    content = data.get('content', '')
+    
+    if not content:
+        return jsonify({"error": "No content provided"}), 400
+    
+    # Use Groq for analysis
+    analysis = groq_service.analyze_document(content)
+    
+    if analysis:
+        return jsonify({
+            "success": True,
+            "analysis": analysis,
+            "ai_provider": "groq"
+        })
+    
+    # Fallback analysis
+    return jsonify({
+        "success": True,
+        "analysis": {
+            "summary": "Document received and will be processed",
+            "type": "general",
+            "status": "pending"
+        },
+        "ai_provider": "fallback",
+        "note": "Add GROQ_API_KEY to environment for AI analysis"
+    })
+
+@app.route('/api/ai/intent', methods=['POST'])
+def detect_intent():
+    """Detect user intent using Groq"""
+    data = request.get_json()
+    message = data.get('message', '')
+    
+    intents = {
+        "booking": ["book", "appointment", "reserve", "schedule"],
+        "order": ["order", "buy", "purchase", "get"],
+        "menu": ["menu", "food", "drink", "eat"],
+        "hours": ["hours", "open", "close", "time"],
+        "price": ["price", "cost", "how much", "pay"]
+    }
+    
+    detected = []
+    message_lower = message.lower()
+    
+    for intent, keywords in intents.items():
+        if any(keyword in message_lower for keyword in keywords):
+            detected.append(intent)
+    
+    # Use Groq for better intent detection
+    if groq_service.client and not detected:
+        try:
+            prompt = f"Classify this customer message into one intent: booking, order, menu, hours, price, or general. Message: {message}"
+            response = groq_service.chat(prompt)
+            if response:
+                detected = [response.lower().strip()]
+        except:
+            pass
+    
+    return jsonify({
+        "message": message,
+        "detected_intents": detected or ["general"],
+        "primary_intent": detected[0] if detected else "general"
+    })
+
+# Update the existing query endpoint to use Groq
+@app.route('/api/business/<business_id>/smart-query', methods=['POST'])
+def smart_query_with_groq(business_id):
+    """Enhanced query using Groq AI"""
+    if business_id not in businesses:
+        return jsonify({"error": "Business not found"}), 404
+    
+    data = request.get_json()
+    question = data.get('question', '')
+    business = businesses[business_id]
+    
+    # Build context from uploaded documents
+    doc_context = ""
+    if business_id in documents and documents[business_id]:
+        doc_names = [d['filename'] for d in documents[business_id][:3]]
+        doc_context = f"Uploaded documents: {', '.join(doc_names)}"
+    
+    context = f"Business: {business['name']}. Type: {business.get('type', 'general')}. {doc_context}"
+    
+    # Try Groq first
+    response = groq_service.chat(question, context)
+    
+    if not response:
+        # Fallback logic
+        if "menu" in question.lower():
+            response = f"We have various items available. Please upload your menu for specific details about {business['name']}."
+        elif "book" in question.lower():
+            response = f"I can help you book at {business['name']}. What date and time works for you?"
+        elif "price" in question.lower():
+            response = f"For pricing information about {business['name']}, please upload your price list."
+        else:
+            response = f"Thank you for asking about {business['name']}. How can I help you today?"
+    
+    # Track the query
+    task_id = str(uuid.uuid4())[:8]
+    analytics.log_task_start(task_id, "smart_query", "groq" if groq_service.client else "fallback")
+    
+    return jsonify({
+        "success": True,
+        "question": question,
+        "response": response,
+        "business": business['name'],
+        "ai_provider": "groq" if groq_service.client else "fallback",
+        "documents_available": len(documents.get(business_id, []))
+    })
+
+# Get Groq status
+@app.route('/api/ai/status')
+def ai_status():
+    """Check AI service status"""
+    return jsonify({
+        "groq_available": GROQ_AVAILABLE,
+        "groq_configured": bool(groq_service.client),
+        "groq_api_key_set": bool(groq_service.api_key),
+        "message": "Groq AI is ready" if groq_service.client else "Add GROQ_API_KEY to enable AI features"
+    })
+
