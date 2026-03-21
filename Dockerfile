@@ -1,36 +1,15 @@
 FROM python:3.11-slim
 
-# Set environment variables
-ENV PYTHONUNBUFFERED=1
-ENV GROQ_API_KEY=""
-
-# Set work directory
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    gcc \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy requirements first for caching
+# Copy requirements first
 COPY requirements.txt .
 
-# Install Python dependencies including Groq
-RUN pip install --upgrade pip && \
-    pip install --no-cache-dir \
-    flask==2.3.3 \
-    gunicorn==21.2.0 \
-    groq==0.4.2
+# Install dependencies
+RUN pip install --no-cache-dir flask gunicorn groq
 
 # Copy application
-COPY . .
+COPY app.py .
 
-# Create a non-root user
-RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
-USER appuser
-
-# Expose port
-EXPOSE 8000
-
-# Run with gunicorn
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "1", "--threads", "2", "app:app"]
+# Run the app
+CMD ["gunicorn", "--bind", "0.0.0.0:8000", "app:app"]
