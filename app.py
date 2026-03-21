@@ -311,3 +311,14 @@ if __name__ == '__main__':
     print(f"📊 API Key Status: {'Present' if api_key else 'Missing'}")
     print("\n" + "=" * 60)
     app.run(host='0.0.0.0', port=port)
+
+@app.route('/api/debug/groq')
+def debug_groq():
+    import os
+    return jsonify({
+        "api_key_exists": "GROQ_API_KEY" in os.environ,
+        "api_key_length": len(os.environ.get("GROQ_API_KEY", "")),
+        "groq_client_exists": groq_client is not None,
+        "python_path": os.environ.get("PYTHONPATH", ""),
+        "all_env_vars": [k for k in os.environ.keys() if "GROQ" in k or "API" in k]
+    })
