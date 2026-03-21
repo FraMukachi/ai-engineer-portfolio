@@ -1,127 +1,61 @@
-from fastapi import FastAPI, UploadFile, File, Form
-from fastapi.middleware.cors import CORSMiddleware
-from groq import Groq
 import os
-import uuid
+import sys
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
+from typing import Optional
+import logging
 
-app = FastAPI(title="BotBase API")
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"]
-)
-
-client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
-businesses = {}
-
-def extract_text(file_bytes, filename):
-    if filename.endswith(".pdf"):
-        import pypdf, io
-        reader = pypdf.PdfReader(io.BytesIO(file_bytes))
-        return "\n".join([page.extract_text() for page in reader.pages])
-    elif filename.endswith(".docx"):
-        from docx import Document
-        import io
-        doc = Document(io.BytesIO(file_bytes))
-        return "\n".join([p.text for p in doc.paragraphs])
-    else:
-        return file_bytes.decode("utf-8")
-
-def chunk_text(text, chunk_size=300):
-    words = text.split()
-    chunks = []
-    for i in range(0, len(words), chunk_size):
-        chunks.append(" ".join(words[i:i+chunk_size]))
-    return chunks
-
-def find_relevant_chunks(question, chunks, top_n=3):
-    question_words = set(question.lower().split())
-    scored = []
-    for chunk in chunks:
-        chunk_words = set(chunk.lower().split())
-        score = len(question_words & chunk_words)
-        scored.append((score, chunk))
-    scored.sort(reverse=True)
-    return [chunk for _, chunk in scored[:top_n]]
+# Initialize FastAPI
+app = FastAPI(title="AI Engineer Portfolio")
 
 @app.get("/")
-def home():
+async def root():
     return {
-        "product": "BotBase",
-        "version": "2.0",
-        "status": "live",
-        "endpoints": {
-            "upload": "POST /upload",
-            "chat": "POST /chat",
-            "businesses": "GET /businesses"
-        }
+        "message": "AI Engineer Portfolio API",
+        "status": "running",
+        "available_modules": ["rag", "lessons"]
     }
 
-@app.post("/upload")
-async def upload_document(
-    business_name: str = Form(...),
-    file: UploadFile = File(...)
-):
+@app.get("/health")
+async def health():
+    return {"status": "healthy"}
+
+# Import your existing RAG implementation
+try:
+    # Assuming month3_rag.py has a function or class you want to expose
+    import month3_rag
+    logger.info("Successfully imported RAG module")
+    
+    @app.get("/api/rag/test")
+    async def test_rag():
+        return {"message": "RAG module is loaded", "functions": dir(month3_rag)}
+except Exception as e:
+    logger.error(f"Error loading RAG module: {e}")
+    @app.get("/api/rag/test")
+    async def test_rag():
+        return {"error": "RAG module not available", "detail": str(e)}
+
+# Simple chat endpoint
+class ChatRequest(BaseModel):
+    message: str
+
+@app.post("/api/chat")
+async def chat(request: ChatRequest):
     try:
-        file_bytes = await file.read()
-        text = extract_text(file_bytes, file.filename)
-        chunks = chunk_text(text)
-        business_id = business_name.lower().replace(" ", "_")
-        businesses[business_id] = {
-            "name": business_name,
-            "chunks": chunks
-        }
+        # You can integrate your Groq logic here
         return {
-            "status": "success",
-            "business": business_name,
-            "business_id": business_id,
-            "chunks_indexed": len(chunks),
-            "message": f"Bot ready for {business_name}"
+            "response": f"Received: {request.message}",
+            "status": "success"
         }
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/chat")
-async def chat(
-    business_id: str = Form(...),
-    message: str = Form(...)
-):
-    try:
-        if business_id not in businesses:
-            return {"status": "error", "message": "Business not found. Upload documents first."}
-
-        business_name = businesses[business_id]["name"]
-        chunks = businesses[business_id]["chunks"]
-        relevant = find_relevant_chunks(message, chunks)
-        context = "\n".join(relevant)
-
-        response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[
-                {"role": "system", "content": f"""You are a customer support assistant for {business_name}.
-Answer using ONLY this information:
-{context}
-If the answer is not here, say: 'I don't have that info. Please contact us directly.'
-Be friendly and concise."""},
-                {"role": "user", "content": message}
-            ]
-        )
-        return {
-            "status": "success",
-            "business": business_name,
-            "response": response.choices[0].message.content
-        }
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
-
-@app.get("/businesses")
-def list_businesses():
-    return {
-        "total": len(businesses),
-        "businesses": [
-            {"id": bid, "name": bdata["name"]}
-            for bid, bdata in businesses.items()
-        ]
-    }
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
