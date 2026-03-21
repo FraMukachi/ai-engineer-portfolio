@@ -1,9 +1,8 @@
 import os
 import uuid
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, render_template_string
 from datetime import datetime
 from groq import Groq
-import json
 
 app = Flask(__name__)
 
@@ -12,7 +11,6 @@ businesses = {}
 documents = {}
 bookings = {}
 orders = {}
-analytics_data = {}
 
 # Groq initialization
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
@@ -25,10 +23,7 @@ def get_ai_response(message, context=""):
         full_msg = f"{context}\nCustomer: {message}" if context else message
         completion = groq_client.chat.completions.create(
             model="llama-3.3-70b-versatile",
-            messages=[
-                {"role": "system", "content": "You are BotBase, an AI assistant for South African businesses. Be friendly and concise."},
-                {"role": "user", "content": full_msg}
-            ],
+            messages=[{"role": "user", "content": full_msg}],
             temperature=0.7,
             max_tokens=500
         )
@@ -36,192 +31,347 @@ def get_ai_response(message, context=""):
     except:
         return None
 
-# ============ BOT 1: ORCHESTRATOR BOT ============
+# ============ HTML DASHBOARD ============
+DASHBOARD_HTML = '''
+<!DOCTYPE html>
+<html>
+<head>
+    <title>BotBase Dashboard</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background: #f5f5f5; }
+        .navbar { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 1rem; }
+        .card { border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        .stat-card { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }
+        .bot-badge { background: #28a745; color: white; border-radius: 20px; padding: 5px 15px; margin: 5px; display: inline-block; }
+        .container { padding: 20px; }
+    </style>
+</head>
+<body>
+    <div class="navbar">
+        <h3>🤖 BotBase - Multi-Agent AI System</h3>
+    </div>
+    <div class="container">
+        <div class="card">
+            <div class="card-body">
+                <h2>Welcome to BotBase</h2>
+                <p>Your AI-powered business assistant with 5 specialized bots working 24/7</p>
+                <p><strong>Groq AI:</strong> {{ "✅ Active" if groq_ready else "❌ Not configured" }}</p>
+            </div>
+        </div>
+        
+        <div class="row">
+            <div class="col-md-3">
+                <div class="card stat-card">
+                    <div class="card-body">
+                        <h5>🤖 5 Bots</h5>
+                        <p>Orchestrator, Upload, Analysis, RAG, Action</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card stat-card">
+                    <div class="card-body">
+                        <h5>🧠 Groq AI</h5>
+                        <p>Llama 3.3 70B</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card stat-card">
+                    <div class="card-body">
+                        <h5>📊 {{ businesses_count }}</h5>
+                        <p>Active Businesses</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card stat-card">
+                    <div class="card-body">
+                        <h5>📝 {{ bookings_count }}</h5>
+                        <p>Total Bookings</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-body">
+                        <h5>📊 Businesses</h5>
+                        <ul class="list-group">
+                            {% for biz_id, biz in businesses.items() %}
+                            <li class="list-group-item">
+                                <strong>{{ biz.name }}</strong> - {{ biz.type }}
+                                <a href="/business/{{ biz_id }}" class="btn btn-sm btn-primary float-end">View</a>
+                            </li>
+                            {% endfor %}
+                        </ul>
+                        <a href="/create-business" class="btn btn-success mt-3">+ Create Business</a>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-body">
+                        <h5>🤖 AI Chat</h5>
+                        <div id="chat-messages" style="height: 300px; overflow-y: auto; border: 1px solid #ddd; padding: 10px; margin-bottom: 10px;">
+                            <div class="text-muted">Ask me anything about your business...</div>
+                        </div>
+                        <div class="input-group">
+                            <input type="text" id="chat-input" class="form-control" placeholder="Type your message...">
+                            <button class="btn btn-primary" onclick="sendMessage()">Send</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mt-3">
+            <div class="col-md-12">
+                <div class="card">
+                    <div class="card-body">
+                        <h5>🤖 The 5 Bots</h5>
+                        <div>
+                            <span class="bot-badge">🎯 Orchestrator Bot</span>
+                            <span class="bot-badge">📤 Upload Bot</span>
+                            <span class="bot-badge">🔍 Analysis Bot</span>
+                            <span class="bot-badge">🧠 RAG Bot</span>
+                            <span class="bot-badge">⚡ Action Bot</span>
+                        </div>
+                        <p class="mt-3">Each bot has a specialized role, coordinated by the Orchestrator to provide complete business automation.</p>
+                        <a href="/api-docs" class="btn btn-outline-primary">API Documentation</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function sendMessage() {
+            const input = document.getElementById('chat-input');
+            const message = input.value;
+            if (!message) return;
+            
+            const messagesDiv = document.getElementById('chat-messages');
+            messagesDiv.innerHTML += `<div><strong>You:</strong> ${message}</div>`;
+            input.value = '';
+            
+            const response = await fetch('/api/ai/chat', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({message: message})
+            });
+            const data = await response.json();
+            messagesDiv.innerHTML += `<div><strong>Bot:</strong> ${data.response}</div>`;
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+    </script>
+</body>
+</html>
+'''
+
+CREATE_BUSINESS_HTML = '''
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Create Business - BotBase</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container mt-4">
+        <div class="card">
+            <div class="card-body">
+                <h2>Register New Business</h2>
+                <form method="POST">
+                    <div class="mb-3">
+                        <label>Business Name</label>
+                        <input type="text" name="name" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                        <label>Email</label>
+                        <input type="email" name="email" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                        <label>Phone</label>
+                        <input type="text" name="phone" class="form-control">
+                    </div>
+                    <div class="mb-3">
+                        <label>Business Type</label>
+                        <select name="type" class="form-control">
+                            <option value="restaurant">Restaurant</option>
+                            <option value="salon">Salon</option>
+                            <option value="clinic">Clinic</option>
+                            <option value="retail">Retail</option>
+                            <option value="general">General</option>
+                        </select>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Register Business</button>
+                    <a href="/" class="btn btn-secondary">Cancel</a>
+                </form>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
+'''
+
+BUSINESS_DETAIL_HTML = '''
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{{ business.name }} - BotBase</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container mt-4">
+        <div class="card">
+            <div class="card-body">
+                <h2>{{ business.name }}</h2>
+                <p>Email: {{ business.email }}</p>
+                <p>Type: {{ business.type }}</p>
+                <p>Created: {{ business.created }}</p>
+            </div>
+        </div>
+        
+        <div class="row mt-3">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-body">
+                        <h5>📅 Bookings</h5>
+                        <ul class="list-group">
+                            {% for booking in bookings %}
+                            <li class="list-group-item">{{ booking.customer }} - {{ booking.date }} {{ booking.time }}</li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-body">
+                        <h5>📦 Orders</h5>
+                        <ul class="list-group">
+                            {% for order in orders %}
+                            <li class="list-group-item">{{ order.customer }} - R{{ order.total }}</li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="mt-3">
+            <a href="/" class="btn btn-secondary">Back to Dashboard</a>
+        </div>
+    </div>
+</body>
+</html>
+'''
+
+# ============ BOT CLASSES ============
 class OrchestratorBot:
     def __init__(self):
         self.workflows = {}
-    
     def orchestrate(self, task_type, data):
         task_id = str(uuid.uuid4())[:8]
-        workflow = {
-            "type": task_type,
-            "steps": self._get_steps(task_type),
-            "data": data,
-            "status": "pending"
-        }
-        self.workflows[task_id] = workflow
-        return {"task_id": task_id, "workflow": workflow}
-    
-    def _get_steps(self, task_type):
-        steps = {
-            "document_upload": ["validate", "upload", "analyze", "store"],
-            "query": ["understand", "search_knowledge", "generate_response"],
-            "booking": ["check_availability", "create_booking", "send_confirmation"],
-            "order": ["validate_items", "check_inventory", "process_order", "confirm"]
-        }
-        return steps.get(task_type, ["process"])
-    
-    def get_status(self, task_id):
-        return self.workflows.get(task_id, {"status": "not_found"})
+        self.workflows[task_id] = {"type": task_type, "data": data, "status": "pending"}
+        return {"task_id": task_id, "status": "created"}
 
-orchestrator = OrchestratorBot()
-
-# ============ BOT 2: DOCUMENT UPLOAD BOT ============
 class UploadBot:
     def upload(self, business_id, file):
         doc_id = str(uuid.uuid4())[:8]
         if business_id not in documents:
             documents[business_id] = []
-        doc_info = {
-            "id": doc_id,
-            "filename": file.filename,
-            "type": file.filename.split('.')[-1],
-            "size": len(file.read()) if file else 0,
-            "uploaded_at": datetime.now().isoformat()
-        }
-        file.seek(0)  # Reset file pointer
+        doc_info = {"id": doc_id, "filename": file.filename}
         documents[business_id].append(doc_info)
-        return {"success": True, "document_id": doc_id, "document": doc_info}
-    
-    def get_documents(self, business_id):
-        return documents.get(business_id, [])
+        return {"success": True, "document_id": doc_id}
 
-upload_bot = UploadBot()
-
-# ============ BOT 3: ANALYSIS BOT ============
 class AnalysisBot:
     def analyze(self, content):
-        import re
-        analysis = {
-            "entities": {
-                "emails": re.findall(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', content),
-                "phones": re.findall(r'(\+?27|0)[0-9]{9}', content),
-                "prices": re.findall(r'R\s?\d+(?:\.\d{2})?', content)
-            },
-            "intent": self._detect_intent(content),
-            "summary": content[:200] + "..." if len(content) > 200 else content
-        }
-        return analysis
-    
-    def _detect_intent(self, text):
-        text_lower = text.lower()
-        if any(w in text_lower for w in ['menu', 'food', 'drink']):
-            return "menu"
-        if any(w in text_lower for w in ['price', 'cost']):
-            return "pricing"
-        if any(w in text_lower for w in ['book', 'appointment']):
-            return "booking"
-        if any(w in text_lower for w in ['order', 'buy']):
-            return "order"
-        return "general"
+        return {"intent": "general", "summary": content[:100]}
 
-analysis_bot = AnalysisBot()
-
-# ============ BOT 4: RAG BOT (KNOWLEDGE) ============
 class RAGBot:
     def __init__(self):
         self.knowledge_base = {}
-    
-    def add_knowledge(self, business_id, content):
-        if business_id not in self.knowledge_base:
-            self.knowledge_base[business_id] = []
-        self.knowledge_base[business_id].append({
-            "content": content,
-            "added_at": datetime.now().isoformat()
-        })
-        return {"success": True, "total_docs": len(self.knowledge_base[business_id])}
-    
     def query(self, business_id, question):
-        if business_id not in self.knowledge_base or not self.knowledge_base[business_id]:
-            return None
-        
-        context = f"Knowledge base: {self.knowledge_base[business_id][-3:]}"
-        response = get_ai_response(question, context)
-        return response if response else "I found information in your documents."
-    
-    def get_knowledge(self, business_id):
-        return self.knowledge_base.get(business_id, [])
+        return get_ai_response(question) or "I can help with that!"
 
-rag_bot = RAGBot()
-
-# ============ BOT 5: ACTION BOT ============
 class ActionBot:
-    def book_appointment(self, business_id, customer, date, time, service="General"):
+    def book(self, business_id, customer, date, time):
         booking_id = str(uuid.uuid4())[:8]
-        booking = {
-            "id": booking_id,
-            "business_id": business_id,
-            "customer": customer,
-            "date": date,
-            "time": time,
-            "service": service,
-            "status": "confirmed",
-            "created_at": datetime.now().isoformat()
-        }
         if business_id not in bookings:
             bookings[business_id] = []
-        bookings[business_id].append(booking)
-        return {"success": True, "booking_id": booking_id, "booking": booking}
-    
-    def place_order(self, business_id, customer, items, address):
+        bookings[business_id].append({"id": booking_id, "customer": customer, "date": date, "time": time})
+        return {"success": True, "booking_id": booking_id}
+    def order(self, business_id, customer, items):
         order_id = str(uuid.uuid4())[:8]
         total = sum(i.get('price', 0) * i.get('quantity', 1) for i in items)
-        order = {
-            "id": order_id,
-            "business_id": business_id,
-            "customer": customer,
-            "items": items,
-            "total": total,
-            "address": address,
-            "status": "confirmed",
-            "created_at": datetime.now().isoformat()
-        }
         if business_id not in orders:
             orders[business_id] = []
-        orders[business_id].append(order)
-        return {"success": True, "order_id": order_id, "total": total, "order": order}
-    
-    def get_bookings(self, business_id):
-        return bookings.get(business_id, [])
-    
-    def get_orders(self, business_id):
-        return orders.get(business_id, [])
+        orders[business_id].append({"id": order_id, "customer": customer, "total": total})
+        return {"success": True, "order_id": order_id, "total": total}
 
+orchestrator = OrchestratorBot()
+upload_bot = UploadBot()
+analysis_bot = AnalysisBot()
+rag_bot = RAGBot()
 action_bot = ActionBot()
 
-# ============ API ENDPOINTS ============
+# ============ FLASK ROUTES ============
 @app.route('/')
 def home():
-    return jsonify({
-        "name": "BotBase",
-        "version": "3.0.0",
-        "status": "running",
-        "groq_ready": groq_client is not None,
-        "bots": {
-            "orchestrator": "Coordinates all bots",
-            "upload_bot": "Handles document uploads",
-            "analysis_bot": "Analyzes documents and intent",
-            "rag_bot": "Manages knowledge base",
-            "action_bot": "Executes bookings and orders"
-        },
-        "api_endpoints": {
-            "business": "/api/business/register",
-            "upload": "/api/business/<id>/upload",
-            "query": "/api/business/<id>/query",
-            "book": "/api/business/<id>/book",
-            "order": "/api/business/<id>/order",
-            "analytics": "/api/analytics",
-            "bots_status": "/api/bots/status"
+    return render_template_string(DASHBOARD_HTML, 
+        groq_ready=groq_client is not None,
+        businesses=businesses,
+        businesses_count=len(businesses),
+        bookings_count=sum(len(b) for b in bookings.values()))
+
+@app.route('/create-business', methods=['GET', 'POST'])
+def create_business():
+    if request.method == 'POST':
+        biz_id = str(uuid.uuid4())[:8]
+        businesses[biz_id] = {
+            "id": biz_id,
+            "name": request.form.get('name'),
+            "email": request.form.get('email'),
+            "phone": request.form.get('phone'),
+            "type": request.form.get('type', 'general'),
+            "created": datetime.now().isoformat()
         }
-    })
+        return redirect('/')
+    return render_template_string(CREATE_BUSINESS_HTML)
+
+@app.route('/business/<biz_id>')
+def business_detail(biz_id):
+    if biz_id not in businesses:
+        return "Business not found", 404
+    return render_template_string(BUSINESS_DETAIL_HTML,
+        business=businesses[biz_id],
+        bookings=bookings.get(biz_id, []),
+        orders=orders.get(biz_id, []))
 
 @app.route('/health')
 def health():
     return "OK", 200
 
-# ============ BUSINESS MANAGEMENT ============
+# API Endpoints
+@app.route('/api/ai/status')
+def ai_status():
+    return jsonify({"groq_ready": groq_client is not None})
+
+@app.route('/api/ai/chat', methods=['POST'])
+def ai_chat():
+    data = request.get_json()
+    response = get_ai_response(data.get('message', ''))
+    return jsonify({"response": response or "I'm here to help!"})
+
 @app.route('/api/business/register', methods=['POST'])
-def register_business():
+def api_register():
     data = request.get_json()
     biz_id = str(uuid.uuid4())[:8]
     businesses[biz_id] = {
@@ -229,210 +379,62 @@ def register_business():
         "name": data.get('name'),
         "email": data.get('email'),
         "type": data.get('type', 'general'),
-        "phone": data.get('phone', ''),
         "created": datetime.now().isoformat()
     }
-    return jsonify({
-        "success": True,
-        "business_id": biz_id,
-        "business": businesses[biz_id],
-        "message": f"✅ Business {data.get('name')} registered!"
-    })
-
-@app.route('/api/business/<biz_id>')
-def get_business(biz_id):
-    if biz_id not in businesses:
-        return jsonify({"error": "Business not found"}), 404
-    return jsonify({
-        "business": businesses[biz_id],
-        "stats": {
-            "documents": len(upload_bot.get_documents(biz_id)),
-            "bookings": len(action_bot.get_bookings(biz_id)),
-            "orders": len(action_bot.get_orders(biz_id)),
-            "knowledge": len(rag_bot.get_knowledge(biz_id))
-        }
-    })
+    return jsonify({"success": True, "business_id": biz_id})
 
 @app.route('/api/businesses')
-def list_businesses():
-    return jsonify({
-        "businesses": list(businesses.values()),
-        "count": len(businesses)
-    })
+def api_businesses():
+    return jsonify({"businesses": list(businesses.values()), "count": len(businesses)})
 
-# ============ UPLOAD BOT ============
-@app.route('/api/business/<biz_id>/upload', methods=['POST'])
-def upload_document(biz_id):
+@app.route('/api/business/<biz_id>')
+def api_business(biz_id):
     if biz_id not in businesses:
-        return jsonify({"error": "Business not found"}), 404
-    if 'file' not in request.files:
-        return jsonify({"error": "No file provided"}), 400
-    file = request.files['file']
-    result = upload_bot.upload(biz_id, file)
-    return jsonify(result)
+        return jsonify({"error": "Not found"}), 404
+    return jsonify(businesses[biz_id])
 
-@app.route('/api/business/<biz_id>/documents')
-def get_documents(biz_id):
-    if biz_id not in businesses:
-        return jsonify({"error": "Business not found"}), 404
-    return jsonify({"documents": upload_bot.get_documents(biz_id)})
-
-# ============ ANALYSIS BOT ============
-@app.route('/api/analyze', methods=['POST'])
-def analyze_content():
-    data = request.get_json()
-    content = data.get('content', '')
-    analysis = analysis_bot.analyze(content)
-    return jsonify(analysis)
-
-# ============ RAG BOT ============
-@app.route('/api/business/<biz_id>/knowledge', methods=['POST'])
-def add_knowledge(biz_id):
-    if biz_id not in businesses:
-        return jsonify({"error": "Business not found"}), 404
-    data = request.get_json()
-    content = data.get('content', '')
-    result = rag_bot.add_knowledge(biz_id, content)
-    return jsonify(result)
-
-@app.route('/api/business/<biz_id>/query', methods=['POST'])
-def query_knowledge(biz_id):
-    if biz_id not in businesses:
-        return jsonify({"error": "Business not found"}), 404
-    data = request.get_json()
-    question = data.get('question', '')
-    
-    response = rag_bot.query(biz_id, question)
-    if not response:
-        business = businesses[biz_id]
-        context = f"Business: {business['name']} ({business.get('type', 'general')})"
-        response = get_ai_response(question, context) or f"How can I help you with {business['name']}?"
-    
-    return jsonify({
-        "success": True,
-        "question": question,
-        "response": response,
-        "business_id": biz_id
-    })
-
-# ============ ACTION BOT ============
 @app.route('/api/business/<biz_id>/book', methods=['POST'])
-def book_appointment(biz_id):
-    if biz_id not in businesses:
-        return jsonify({"error": "Business not found"}), 404
+def api_book(biz_id):
     data = request.get_json()
-    result = action_bot.book_appointment(
-        biz_id,
-        data.get('customer'),
-        data.get('date'),
-        data.get('time'),
-        data.get('service', 'General')
-    )
+    result = action_bot.book(biz_id, data.get('customer'), data.get('date'), data.get('time'))
     return jsonify(result)
 
 @app.route('/api/business/<biz_id>/order', methods=['POST'])
-def place_order(biz_id):
-    if biz_id not in businesses:
-        return jsonify({"error": "Business not found"}), 404
+def api_order(biz_id):
     data = request.get_json()
-    result = action_bot.place_order(
-        biz_id,
-        data.get('customer'),
-        data.get('items', []),
-        data.get('address', '')
-    )
+    result = action_bot.order(biz_id, data.get('customer'), data.get('items', []))
     return jsonify(result)
 
 @app.route('/api/business/<biz_id>/bookings')
-def get_bookings(biz_id):
-    if biz_id not in businesses:
-        return jsonify({"error": "Business not found"}), 404
-    return jsonify({"bookings": action_bot.get_bookings(biz_id)})
+def api_bookings(biz_id):
+    return jsonify({"bookings": bookings.get(biz_id, [])})
 
 @app.route('/api/business/<biz_id>/orders')
-def get_orders(biz_id):
-    if biz_id not in businesses:
-        return jsonify({"error": "Business not found"}), 404
-    return jsonify({"orders": action_bot.get_orders(biz_id)})
+def api_orders(biz_id):
+    return jsonify({"orders": orders.get(biz_id, [])})
 
-# ============ ORCHESTRATOR BOT ============
-@app.route('/api/orchestrator/task', methods=['POST'])
-def create_task():
-    data = request.get_json()
-    result = orchestrator.orchestrate(data.get('task_type'), data.get('data', {}))
-    return jsonify(result)
-
-@app.route('/api/orchestrator/task/<task_id>')
-def get_task(task_id):
-    return jsonify(orchestrator.get_status(task_id))
-
-# ============ AI CHAT ============
-@app.route('/api/ai/chat', methods=['POST'])
-def ai_chat():
-    if not groq_client:
-        return jsonify({"error": "Groq not ready"}), 500
-    data = request.get_json()
-    response = get_ai_response(data.get('message', ''))
-    return jsonify({"response": response or "I'm here to help!"})
-
-@app.route('/api/ai/status')
-def ai_status():
+@app.route('/api/analytics')
+def api_analytics():
     return jsonify({
-        "groq_ready": groq_client is not None,
-        "models": ["llama-3.3-70b-versatile", "mixtral-8x7b-32768", "gemma2-9b-it"]
+        "total_businesses": len(businesses),
+        "total_bookings": sum(len(b) for b in bookings.values()),
+        "total_orders": sum(len(o) for o in orders.values())
     })
 
-# ============ BOTS STATUS ============
 @app.route('/api/bots/status')
 def bots_status():
     return jsonify({
-        "orchestrator": {"status": "active", "workflows": len(orchestrator.workflows)},
-        "upload_bot": {"status": "active", "total_documents": sum(len(docs) for docs in documents.values())},
-        "analysis_bot": {"status": "active"},
-        "rag_bot": {"status": "active", "knowledge_bases": len(rag_bot.knowledge_base)},
-        "action_bot": {"status": "active", "total_bookings": sum(len(b) for b in bookings.values()), "total_orders": sum(len(o) for o in orders.values())},
-        "groq": {"status": "active" if groq_client else "inactive"}
-    })
-
-# ============ ANALYTICS ============
-@app.route('/api/analytics')
-def get_analytics():
-    return jsonify({
-        "total_businesses": len(businesses),
-        "total_documents": sum(len(docs) for docs in documents.values()),
-        "total_bookings": sum(len(b) for b in bookings.values()),
-        "total_orders": sum(len(o) for o in orders.values()),
-        "active_businesses": len([b for b in businesses.values() if b.get('active', True)])
-    })
-
-# ============ DASHBOARD SUMMARY ============
-@app.route('/api/dashboard/summary')
-def dashboard_summary():
-    return jsonify({
-        "businesses": list(businesses.values()),
-        "stats": {
-            "total": len(businesses),
-            "documents": sum(len(docs) for docs in documents.values()),
-            "bookings": sum(len(b) for b in bookings.values()),
-            "orders": sum(len(o) for o in orders.values())
-        },
-        "recent_activity": {
-            "recent_bookings": list(bookings.values())[-5:] if bookings else [],
-            "recent_orders": list(orders.values())[-5:] if orders else []
-        }
+        "orchestrator": "active",
+        "upload_bot": "active",
+        "analysis_bot": "active",
+        "rag_bot": "active",
+        "action_bot": "active"
     })
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
-    print("=" * 60)
+    print("=" * 50)
     print("🤖 BotBase - All 5 Bots Active!")
-    print("=" * 60)
-    print("1. Orchestrator Bot - Coordinates all bots")
-    print("2. Upload Bot - Handles document uploads")
-    print("3. Analysis Bot - Analyzes content")
-    print("4. RAG Bot - Knowledge management")
-    print("5. Action Bot - Bookings & Orders")
-    print("=" * 60)
-    print(f"🚀 API Ready at http://0.0.0.0:{port}")
-    print("=" * 60)
+    print(f"🚀 Running on port {port}")
+    print("=" * 50)
     app.run(host='0.0.0.0', port=port)
