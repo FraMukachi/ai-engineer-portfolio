@@ -424,3 +424,52 @@ def ai_chat():
         memory.store(business_id, "chat", {"message": message}, response, True)
     
     return jsonify({"response": response})
+
+# ============ DASHBOARD ============
+@app.route('/dashboard')
+def dashboard():
+    with open('dashboard.html', 'r') as f:
+        return f.read()
+
+@app.route('/business/<biz_id>')
+def business_page(biz_id):
+    return f'''
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Business Details - BotBase</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <script src="https://cdn.tailwindcss.com"></script>
+    </head>
+    <body class="bg-gray-100">
+        <div class="max-w-4xl mx-auto p-6">
+            <div class="bg-white rounded-2xl shadow-xl p-6">
+                <h1 class="text-2xl font-bold mb-4">Business Details</h1>
+                <div id="businessInfo"></div>
+                <div class="mt-6">
+                    <a href="/dashboard" class="text-purple-600 hover:underline">← Back to Dashboard</a>
+                </div>
+            </div>
+        </div>
+        <script>
+            fetch(`/api/business/${{window.location.pathname.split('/').pop()}}`)
+                .then(r => r.json())
+                .then(data => {{
+                    document.getElementById('businessInfo').innerHTML = `
+                        <p><strong>Name:</strong> ${{data.name}}</p>
+                        <p><strong>Email:</strong> ${{data.email}}</p>
+                        <p><strong>Type:</strong> ${{data.type}}</p>
+                        <p><strong>Created:</strong> ${{data.created}}</p>
+                    `;
+                }});
+        </script>
+    </body>
+    </html>
+    '''
+
+# Payment confirmation endpoint
+@app.route('/api/payment/confirm', methods=['POST'])
+def confirm_payment():
+    data = request.get_json()
+    print(f"Payment confirmed: {data}")
+    return jsonify({"success": True})
