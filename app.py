@@ -316,3 +316,111 @@ def get_bookings(biz_id):
 @app.route('/api/business/<biz_id>/orders')
 def get_orders(biz_id):
     return jsonify({"orders": orders.get(biz_id, [])})
+
+# ============ ORCHESTRATOR BOT ============
+class OrchestratorBot:
+    def __init__(self):
+        self.tasks = {}
+    
+    def create_task(self, business_id, task_type, data):
+        task_id = str(uuid.uuid4())[:8]
+        
+        # Route to appropriate bot
+        if task_type == "booking":
+            result = action_bot.book(business_id, data.get('customer'), data.get('date'), data.get('time'))
+        elif task_type == "order":
+            result = action_bot.order(business_id, data.get('customer'), data.get('items', []))
+        elif task_type == "query":
+            context = f"Business: {businesses.get(business_id, {}).get('name', '')}"
+            response = get_ai(data.get('question', ''), context)
+            result = {"response": response or "I'm here to help!"}
+            memory.store(business_id, "orchestrated_query", data, response or "", True)
+        else:
+            result = {"error": "Unknown task type"}
+        
+        self.tasks[task_id] = {
+            "id": task_id,
+            "type": task_type,
+            "data": data,
+            "result": result,
+            "created": datetime.now().isoformat()
+        }
+        
+        memory.store(business_id, "orchestration", {"task_type": task_type}, "Task created", True)
+        return {"task_id": task_id, "result": result}
+    
+    def get_task(self, task_id):
+        return self.tasks.get(task_id, {"error": "Task not found"})
+
+orchestrator = OrchestratorBot()
+
+# ============ ORCHESTRATOR ENDPOINTS ============
+@app.route('/api/orchestrator/task', methods=['POST'])
+def create_orchestrated_task():
+    data = request.get_json()
+    biz_id = data.get('business_id')
+    if biz_id not in businesses:
+        return jsonify({"error": "Business not found"}), 404
+    
+    result = orchestrator.create_task(
+        biz_id,
+        data.get('task_type'),
+        data.get('data', {})
+    )
+    return jsonify(result)
+
+@app.route('/api/orchestrator/task/<task_id>')
+def get_orchestrated_task(task_id):
+    return jsonify(orchestrator.get_task(task_id))
+
+# ============ ANALYTICS ENDPOINTS ============
+@app.route('/api/analytics')
+def get_analytics():
+    return jsonify({
+        "total_businesses": len(businesses),
+        "total_bookings": sum(len(b) for b in bookings.values()),
+        "total_orders": sum(len(o) for o in orders.values()),
+        "total_documents": sum(len(d) for d in documents.values()),
+        "total_learnings": sum(len(memory.interactions.get(biz, [])) for biz in businesses),
+        "memory_active": True
+    })
+
+@app.route('/api/bots/status')
+def bots_status():
+    return jsonify({
+        "orchestrator": "active",
+        "upload_bot": "active",
+        "analysis_bot": "active",
+        "rag_bot": "active",
+        "action_bot": "active",
+        "memory_system": "active",
+        "groq": "active" if groq_client else "inactive",
+        "total_learnings": sum(len(memory.interactions.get(biz, [])) for biz in businesses)
+    })
+
+@app.route('/api/ai/status')
+def ai_status():
+    return jsonify({
+        "groq_ready": groq_client is not None,
+        "memory_active": True,
+        "model": "llama-3.3-70b-versatile"
+    })
+
+@app.route('/api/ai/chat', methods=['POST'])
+def ai_chat():
+    data = request.get_json()
+    message = data.get('message', '')
+    business_id = data.get('business_id')
+    
+    context = ""
+    if business_id and business_id in businesses:
+        context = f"Business: {businesses[business_id]['name']}"
+    
+    response = get_ai(message, context)
+    if not response:
+        response = "How can I help you today?"
+    
+    if business_id:
+        memory.store(business_id, "chat", {"message": message}, response, True)
+    
+    return jsonify({"response": response})
