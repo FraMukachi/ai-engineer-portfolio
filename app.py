@@ -201,3 +201,42 @@ def analyze_doc(biz_id):
 @app.route('/api/business/<biz_id>/documents')
 def get_docs(biz_id):
     return jsonify({"documents": documents.get(biz_id, [])})
+
+# ============ RAG BOT ============
+class RAGBot:
+    def __init__(self):
+        self.knowledge = {}
+    
+    def add(self, business_id, content):
+        if business_id not in self.knowledge:
+            self.knowledge[business_id] = []
+        self.knowledge[business_id].append({
+            "content": content,
+            "added": datetime.now().isoformat()
+        })
+        memory.store(business_id, "knowledge", {"length": len(content)}, "Added", True)
+        return {"success": True, "total": len(self.knowledge[business_id])}
+    
+    def search(self, business_id, question):
+        if business_id not in self.knowledge or not self.knowledge[business_id]:
+            return None
+        
+        # Use AI with knowledge context
+        context = f"Business knowledge: {self.knowledge[business_id][-1]['content'][:300]}"
+        return get_ai(question, context)
+
+rag_bot = RAGBot()
+
+# ============ RAG ENDPOINTS ============
+@app.route('/api/business/<biz_id>/knowledge', methods=['POST'])
+def add_knowledge(biz_id):
+    if biz_id not in businesses:
+        return jsonify({"error": "Business not found"}), 404
+    data = request.get_json()
+    content = data.get('content', '')
+    result = rag_bot.add(biz_id, content)
+    return jsonify(result)
+
+@app.route('/api/business/<biz_id>/knowledge')
+def get_knowledge(biz_id):
+    return jsonify({"knowledge": rag_bot.knowledge.get(biz_id, [])})
