@@ -393,3 +393,126 @@ ADMIN_DASHBOARD = '''<!DOCTYPE html>
     </script>
 </body>
 </html>'''
+
+# ============ ADMIN API ENDPOINTS ============
+@app.route('/admin')
+def admin_dashboard():
+    return ADMIN_DASHBOARD
+
+@app.route('/api/admin/stats')
+def admin_stats():
+    # Calculate success rate
+    total = metrics["total_requests"]
+    errors = metrics["total_errors"]
+    success_rate = ((total - errors) / total * 100) if total > 0 else 100
+    
+    return jsonify({
+        "stats": {
+            "total_businesses": len(businesses),
+            "total_bookings": sum(len(b) for b in bookings.values()),
+            "total_orders": sum(len(o) for o in orders.values()),
+            "total_documents": sum(len(d) for d in documents.values())
+        },
+        "memory": memory.get_progress(),
+        "trends": memory.get_trends(7),
+        "hourly_activity": dict(metrics["hourly_activity"]),
+        "bot_usage": dict(metrics["bot_usage"]),
+        "performance": {
+            "total_requests": metrics["total_requests"],
+            "total_errors": metrics["total_errors"],
+            "avg_response_time": round(metrics["avg_response_time"], 3),
+            "success_rate": round(success_rate, 1),
+            "error_rate": round((errors / total * 100) if total > 0 else 0, 1)
+        }
+    })
+
+@app.route('/api/admin/alerts')
+def admin_alerts():
+    alerts_list = []
+    while not alerts.empty():
+        try:
+            alerts_list.append(alerts.get_nowait())
+        except:
+            break
+    
+    # Add to active alerts
+    for alert in alerts_list:
+        active_alerts.append({**alert, "timestamp": datetime.now().isoformat()})
+    
+    # Keep only last 50 alerts
+    while len(active_alerts) > 50:
+        active_alerts.pop(0)
+    
+    return jsonify({"alerts": active_alerts[-20:]})
+
+@app.route('/api/admin/clear-alerts', methods=['POST'])
+def clear_alerts():
+    active_alerts.clear()
+    return jsonify({"success": True})
+
+# ============ EXISTING API ROUTES ============
+@app.route('/')
+def home():
+    return jsonify({"message": "BotBase API", "admin": "/admin"})
+
+@app.route('/health')
+def health():
+    return "OK", 200
+
+@app.route('/api/business/register', methods=['POST'])
+def register():
+    data = request.get_json()
+    biz_id = str(uuid.uuid4())[:8]
+    businesses[biz_id] = {"id": biz_id, "name": data.get('name'), "email": data.get('email'), "type": data.get('type', 'general'), "created": datetime.now().isoformat()}
+    return jsonify({"success": True, "business_id": biz_id})
+
+@app.route('/api/businesses')
+def list_businesses():
+    return jsonify({"businesses": list(businesses.values())})
+
+@app.route('/api/business/<biz_id>')
+def get_business(biz_id):
+    if biz_id not in businesses:
+        return jsonify({"error": "Not found"}), 404
+    return jsonify(businesses[biz_id])
+
+@app.route('/api/business/<biz_id>/query', methods=['POST'])
+def query():
+    biz_id = request.view_args['biz_id']
+    data = request.get_json()
+    question = data.get('question', '')
+    response = get_ai(question, f"Business: {businesses.get(biz_id, {}).get('name', '')}")
+    if not response:
+        response = "I'm here to help!"
+    memory.store(biz_id, "query", {"question": question}, response, True)
+    return jsonify({"response": response})
+
+@app.route('/api/ai/chat', methods=['POST'])
+def ai_chat():
+    data = request.get_json()
+    message = data.get('message', '')
+    response = get_ai(message)
+    if not response:
+        response = "How can I help you today?"
+    return jsonify({"response": response})
+
+@app.route('/api/business/<biz_id>/book', methods=['POST'])
+def book():
+    biz_id = request.view_args['biz_id']
+    data = request.get_json()
+    return jsonify(action_bot.book(biz_id, data.get('customer'), data.get('date'), data.get('time')))
+
+@app.route('/api/business/<biz_id>/order', methods=['POST'])
+def order():
+    biz_id = request.view_args['biz_id']
+    data = request.get_json()
+    return jsonify(action_bot.order(biz_id, data.get('customer'), data.get('items', [])))
+
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 8000))
+    print("=" * 60)
+    print("🤖 BotBase Admin Dashboard")
+    print(f"📊 Admin Dashboard: https://ai-engineer-portfolio-production.up.railway.app/admin")
+    print(f"📈 Real-time monitoring active")
+    print("=" * 60)
+    app.run(host='0.0.0.0', port=port)
