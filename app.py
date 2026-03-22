@@ -206,3 +206,190 @@ class OrchestratorBot:
         return {"task_id": task_id, "result": result}
 
 orchestrator = OrchestratorBot()
+
+# ============ ADMIN DASHBOARD ============
+ADMIN_DASHBOARD = '''<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BotBase Admin Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.socket.io/4.5.0/socket.io.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        body { background: #0f172a; font-family: 'Inter', sans-serif; }
+        .stat-card { background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border: 1px solid #334155; }
+        .chart-container { background: #1e293b; border-radius: 1rem; padding: 1.5rem; border: 1px solid #334155; }
+        .alert-item { background: #2d3748; border-left: 4px solid #f59e0b; }
+        .alert-error { border-left-color: #ef4444; }
+        .alert-success { border-left-color: #10b981; }
+    </style>
+</head>
+<body class="text-gray-200">
+    <div class="container mx-auto px-4 py-8">
+        <!-- Header -->
+        <div class="flex justify-between items-center mb-8">
+            <div>
+                <h1 class="text-3xl font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">BotBase Admin Dashboard</h1>
+                <p class="text-gray-400 mt-1">Real-time backend monitoring & analytics</p>
+            </div>
+            <div class="flex items-center space-x-3">
+                <div id="connectionStatus" class="flex items-center space-x-2 px-3 py-1 rounded-full bg-green-900/50 border border-green-500">
+                    <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                    <span class="text-sm text-green-400">Live</span>
+                </div>
+                <div class="text-right">
+                    <div class="text-sm text-gray-400">Last Updated</div>
+                    <div id="lastUpdate" class="text-xs font-mono">Just now</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Stats Grid -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            <div class="stat-card rounded-2xl p-6">
+                <div class="flex items-center justify-between">
+                    <div><i class="fas fa-store text-purple-400 text-2xl"></i></div>
+                    <div class="text-right"><div class="text-3xl font-bold" id="totalBusinesses">0</div><div class="text-gray-400 text-sm">Total Businesses</div></div>
+                </div>
+                <div class="mt-4 text-xs text-gray-500"><i class="fas fa-chart-line"></i> <span id="businessTrend">+0</span> this week</div>
+            </div>
+            <div class="stat-card rounded-2xl p-6">
+                <div class="flex items-center justify-between">
+                    <div><i class="fas fa-calendar-check text-blue-400 text-2xl"></i></div>
+                    <div class="text-right"><div class="text-3xl font-bold" id="totalBookings">0</div><div class="text-gray-400 text-sm">Total Bookings</div></div>
+                </div>
+            </div>
+            <div class="stat-card rounded-2xl p-6">
+                <div class="flex items-center justify-between">
+                    <div><i class="fas fa-shopping-cart text-green-400 text-2xl"></i></div>
+                    <div class="text-right"><div class="text-3xl font-bold" id="totalOrders">0</div><div class="text-gray-400 text-sm">Total Orders</div></div>
+                </div>
+            </div>
+            <div class="stat-card rounded-2xl p-6">
+                <div class="flex items-center justify-between">
+                    <div><i class="fas fa-brain text-yellow-400 text-2xl"></i></div>
+                    <div class="text-right"><div class="text-3xl font-bold" id="learningProgress">0</div><div class="text-gray-400 text-sm">AI Learning %</div></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Charts Row -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+            <div class="chart-container">
+                <h3 class="text-lg font-semibold mb-4"><i class="fas fa-chart-line text-purple-400 mr-2"></i>Activity Trends (Last 7 Days)</h3>
+                <canvas id="trendsChart" height="200"></canvas>
+            </div>
+            <div class="chart-container">
+                <h3 class="text-lg font-semibold mb-4"><i class="fas fa-chart-pie text-purple-400 mr-2"></i>Bot Usage Distribution</h3>
+                <canvas id="botUsageChart" height="200"></canvas>
+            </div>
+        </div>
+
+        <!-- Second Row -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+            <div class="chart-container">
+                <h3 class="text-lg font-semibold mb-4"><i class="fas fa-clock text-purple-400 mr-2"></i>Hourly Activity Pattern</h3>
+                <canvas id="hourlyChart" height="200"></canvas>
+            </div>
+            <div class="chart-container">
+                <h3 class="text-lg font-semibold mb-4"><i class="fas fa-gauge-high text-purple-400 mr-2"></i>System Performance</h3>
+                <div class="space-y-4">
+                    <div><div class="flex justify-between text-sm mb-1"><span>Avg Response Time</span><span id="avgResponseTime">0</span><span>ms</span></div><div class="w-full bg-gray-700 rounded-full h-2"><div id="responseTimeBar" class="bg-green-500 rounded-full h-2" style="width: 0%"></div></div></div>
+                    <div><div class="flex justify-between text-sm mb-1"><span>Success Rate</span><span id="successRate">100</span><span>%</span></div><div class="w-full bg-gray-700 rounded-full h-2"><div id="successRateBar" class="bg-green-500 rounded-full h-2" style="width: 100%"></div></div></div>
+                    <div><div class="flex justify-between text-sm mb-1"><span>Total Requests</span><span id="totalRequests">0</span></div></div>
+                    <div><div class="flex justify-between text-sm mb-1"><span>Error Rate</span><span id="errorRate">0</span><span>%</span></div></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Learning Progress & Alerts -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div class="chart-container">
+                <h3 class="text-lg font-semibold mb-4"><i class="fas fa-brain text-purple-400 mr-2"></i>Memory System Learning Progress</h3>
+                <div id="learningMilestones" class="space-y-2 max-h-60 overflow-y-auto">
+                    <div class="text-gray-400 text-center py-4">Loading milestones...</div>
+                </div>
+            </div>
+            <div class="chart-container">
+                <h3 class="text-lg font-semibold mb-4"><i class="fas fa-bell text-purple-400 mr-2"></i>Real-time Alerts</h3>
+                <div id="alertsList" class="space-y-2 max-h-60 overflow-y-auto">
+                    <div class="text-gray-400 text-center py-4">Monitoring system...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let trendsChart, botUsageChart, hourlyChart;
+        
+        async function loadData() {
+            try {
+                const res = await fetch('/api/admin/stats');
+                const data = await res.json();
+                
+                // Update stats
+                document.getElementById('totalBusinesses').innerText = data.stats.total_businesses;
+                document.getElementById('totalBookings').innerText = data.stats.total_bookings;
+                document.getElementById('totalOrders').innerText = data.stats.total_orders;
+                document.getElementById('learningProgress').innerText = data.memory.average_progress;
+                document.getElementById('avgResponseTime').innerText = Math.round(data.performance.avg_response_time * 1000);
+                document.getElementById('totalRequests').innerText = data.performance.total_requests;
+                document.getElementById('successRate').innerText = data.performance.success_rate;
+                document.getElementById('errorRate').innerText = data.performance.error_rate;
+                
+                // Update progress bars
+                const responseTimePercent = Math.min(100, (data.performance.avg_response_time / 5) * 100);
+                document.getElementById('responseTimeBar').style.width = responseTimePercent + '%';
+                document.getElementById('successRateBar').style.width = data.performance.success_rate + '%';
+                
+                // Update trends chart
+                if (trendsChart) trendsChart.destroy();
+                trendsChart = new Chart(document.getElementById('trendsChart'), {
+                    type: 'line',
+                    data: { labels: data.trends.map(t => t.date), datasets: [{ label: 'Interactions', data: data.trends.map(t => t.interactions), borderColor: '#8b5cf6', backgroundColor: 'rgba(139, 92, 246, 0.1)', fill: true }] },
+                    options: { responsive: true, maintainAspectRatio: true, plugins: { legend: { labels: { color: '#9ca3af' } } } }
+                });
+                
+                // Update bot usage chart
+                if (botUsageChart) botUsageChart.destroy();
+                botUsageChart = new Chart(document.getElementById('botUsageChart'), {
+                    type: 'pie',
+                    data: { labels: Object.keys(data.bot_usage), datasets: [{ data: Object.values(data.bot_usage), backgroundColor: ['#8b5cf6', '#3b82f6', '#10b981', '#f59e0b', '#ef4444'] }] },
+                    options: { responsive: true, plugins: { legend: { labels: { color: '#9ca3af' } } } }
+                });
+                
+                // Update hourly chart
+                if (hourlyChart) hourlyChart.destroy();
+                hourlyChart = new Chart(document.getElementById('hourlyChart'), {
+                    type: 'bar',
+                    data: { labels: Object.keys(data.hourly_activity), datasets: [{ label: 'Requests', data: Object.values(data.hourly_activity), backgroundColor: '#8b5cf6' }] },
+                    options: { responsive: true, plugins: { legend: { labels: { color: '#9ca3af' } } } }
+                });
+                
+                // Update milestones
+                const milestonesHtml = data.memory.milestones.map(m => `<div class="bg-gray-800 rounded-lg p-3"><div class="flex items-center justify-between"><span class="text-sm">${m.message}</span><span class="text-xs text-gray-500">${new Date(m.timestamp).toLocaleTimeString()}</span></div></div>`).join('');
+                document.getElementById('learningMilestones').innerHTML = milestonesHtml || '<div class="text-gray-400 text-center py-4">No milestones yet</div>';
+                
+                document.getElementById('lastUpdate').innerText = new Date().toLocaleTimeString();
+            } catch(e) { console.error('Load error:', e); }
+        }
+        
+        async function loadAlerts() {
+            try {
+                const res = await fetch('/api/admin/alerts');
+                const data = await res.json();
+                const alertsHtml = data.alerts.map(a => `<div class="alert-item rounded-lg p-3 ${a.type === 'error' ? 'alert-error' : a.type === 'milestone' ? 'alert-success' : ''}"><div class="flex justify-between items-start"><div><div class="font-semibold text-sm">${a.type.toUpperCase()}</div><div class="text-xs text-gray-400">${JSON.stringify(a.data).substring(0, 100)}</div></div><span class="text-xs text-gray-500">${new Date(a.timestamp).toLocaleTimeString()}</span></div></div>`).join('');
+                document.getElementById('alertsList').innerHTML = alertsHtml || '<div class="text-gray-400 text-center py-4">No alerts</div>';
+            } catch(e) {}
+        }
+        
+        // Auto-refresh every 5 seconds
+        loadData();
+        loadAlerts();
+        setInterval(() => { loadData(); loadAlerts(); }, 5000);
+    </script>
+</body>
+</html>'''
