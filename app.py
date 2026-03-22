@@ -150,3 +150,85 @@ class ActionBot:
         return {"success": True, "order_id": oid, "total": total}
 
 action_bot = ActionBot()
+
+# Admin Dashboard HTML
+ADMIN_DASHBOARD = '''<!DOCTYPE html>
+<html>
+<head>
+    <title>BotBase Admin</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body class="bg-gray-900 text-white">
+    <div class="container mx-auto p-6">
+        <h1 class="text-3xl font-bold mb-6">BotBase Admin Dashboard</h1>
+        
+        <!-- Stats -->
+        <div class="grid grid-cols-4 gap-4 mb-6">
+            <div class="bg-gray-800 rounded-lg p-4"><div class="text-2xl font-bold" id="totalBusinesses">0</div><div>Businesses</div></div>
+            <div class="bg-gray-800 rounded-lg p-4"><div class="text-2xl font-bold" id="totalBookings">0</div><div>Bookings</div></div>
+            <div class="bg-gray-800 rounded-lg p-4"><div class="text-2xl font-bold" id="totalOrders">0</div><div>Orders</div></div>
+            <div class="bg-gray-800 rounded-lg p-4"><div class="text-2xl font-bold" id="learningProgress">0</div><div>Learning %</div></div>
+        </div>
+        
+        <!-- Charts -->
+        <div class="grid grid-cols-2 gap-4 mb-6">
+            <div class="bg-gray-800 rounded-lg p-4"><canvas id="trendsChart"></canvas></div>
+            <div class="bg-gray-800 rounded-lg p-4"><canvas id="hourlyChart"></canvas></div>
+        </div>
+        
+        <!-- Performance -->
+        <div class="grid grid-cols-2 gap-4 mb-6">
+            <div class="bg-gray-800 rounded-lg p-4">
+                <h3>Performance</h3>
+                <div>Response Time: <span id="avgResponseTime">0</span>ms</div>
+                <div>Success Rate: <span id="successRate">100</span>%</div>
+                <div>Total Requests: <span id="totalRequests">0</span></div>
+            </div>
+            <div class="bg-gray-800 rounded-lg p-4">
+                <h3>Alerts</h3>
+                <div id="alertsList" class="h-40 overflow-y-auto"></div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        let trendsChart, hourlyChart;
+        
+        async function load() {
+            const res = await fetch('/api/admin/stats');
+            const data = await res.json();
+            
+            document.getElementById('totalBusinesses').innerText = data.stats.total_businesses;
+            document.getElementById('totalBookings').innerText = data.stats.total_bookings;
+            document.getElementById('totalOrders').innerText = data.stats.total_orders;
+            document.getElementById('learningProgress').innerText = data.memory.average_progress;
+            document.getElementById('avgResponseTime').innerText = Math.round(data.performance.avg_response_time * 1000);
+            document.getElementById('totalRequests').innerText = data.performance.total_requests;
+            document.getElementById('successRate').innerText = data.performance.success_rate;
+            
+            if(trendsChart) trendsChart.destroy();
+            trendsChart = new Chart(document.getElementById('trendsChart'), {
+                type: 'line',
+                data: { labels: data.trends.map(t=>t.date), datasets: [{ label: 'Activity', data: data.trends.map(t=>t.interactions), borderColor: '#8b5cf6' }] }
+            });
+            
+            if(hourlyChart) hourlyChart.destroy();
+            hourlyChart = new Chart(document.getElementById('hourlyChart'), {
+                type: 'bar',
+                data: { labels: Object.keys(data.hourly_activity), datasets: [{ label: 'Requests', data: Object.values(data.hourly_activity), backgroundColor: '#3b82f6' }] }
+            });
+        }
+        
+        async function loadAlerts() {
+            const res = await fetch('/api/admin/alerts');
+            const data = await res.json();
+            document.getElementById('alertsList').innerHTML = data.alerts.map(a => `<div class="text-sm py-1">${a.type}: ${JSON.stringify(a.data)}</div>`).join('');
+        }
+        
+        load(); loadAlerts();
+        setInterval(() => { load(); loadAlerts(); }, 5000);
+    </script>
+</body>
+</html>'''
