@@ -147,3 +147,57 @@ def query():
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8000))
     app.run(host='0.0.0.0', port=port)
+
+# ============ UPLOAD BOT ============
+class UploadBot:
+    def upload(self, business_id, file):
+        doc_id = str(uuid.uuid4())[:8]
+        if business_id not in documents:
+            documents[business_id] = []
+        
+        doc_info = {
+            "id": doc_id,
+            "filename": file.filename,
+            "uploaded_at": datetime.now().isoformat()
+        }
+        documents[business_id].append(doc_info)
+        
+        memory.store(business_id, "upload", {"filename": file.filename}, "Uploaded", True)
+        return {"success": True, "document_id": doc_id}
+
+upload_bot = UploadBot()
+
+# ============ ANALYSIS BOT ============
+class AnalysisBot:
+    def analyze(self, content):
+        import re
+        return {
+            "emails": re.findall(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', content),
+            "phones": re.findall(r'(\+?27|0)[0-9]{9}', content),
+            "prices": re.findall(r'R\s?\d+(?:\.\d{2})?', content)
+        }
+
+analysis_bot = AnalysisBot()
+
+# ============ UPLOAD ENDPOINTS ============
+@app.route('/api/business/<biz_id>/upload', methods=['POST'])
+def upload_doc(biz_id):
+    if biz_id not in businesses:
+        return jsonify({"error": "Business not found"}), 404
+    if 'file' not in request.files:
+        return jsonify({"error": "No file"}), 400
+    file = request.files['file']
+    result = upload_bot.upload(biz_id, file)
+    return jsonify(result)
+
+@app.route('/api/business/<biz_id>/analyze', methods=['POST'])
+def analyze_doc(biz_id):
+    data = request.get_json()
+    content = data.get('content', '')
+    analysis = analysis_bot.analyze(content)
+    memory.store(biz_id, "analysis", {"length": len(content)}, "Analyzed", True)
+    return jsonify(analysis)
+
+@app.route('/api/business/<biz_id>/documents')
+def get_docs(biz_id):
+    return jsonify({"documents": documents.get(biz_id, [])})
