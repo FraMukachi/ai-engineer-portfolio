@@ -240,3 +240,79 @@ def add_knowledge(biz_id):
 @app.route('/api/business/<biz_id>/knowledge')
 def get_knowledge(biz_id):
     return jsonify({"knowledge": rag_bot.knowledge.get(biz_id, [])})
+
+# ============ ACTION BOT ============
+class ActionBot:
+    def book(self, business_id, customer, date, time):
+        booking_id = str(uuid.uuid4())[:8]
+        booking = {
+            "id": booking_id,
+            "customer": customer,
+            "date": date,
+            "time": time,
+            "status": "confirmed",
+            "created": datetime.now().isoformat()
+        }
+        
+        if business_id not in bookings:
+            bookings[business_id] = []
+        bookings[business_id].append(booking)
+        
+        memory.store(business_id, "booking", {"customer": customer, "date": date}, "Confirmed", True)
+        return {"success": True, "booking_id": booking_id, "booking": booking}
+    
+    def order(self, business_id, customer, items):
+        order_id = str(uuid.uuid4())[:8]
+        total = sum(i.get('price', 0) * i.get('quantity', 1) for i in items)
+        
+        order = {
+            "id": order_id,
+            "customer": customer,
+            "items": items,
+            "total": total,
+            "status": "confirmed",
+            "created": datetime.now().isoformat()
+        }
+        
+        if business_id not in orders:
+            orders[business_id] = []
+        orders[business_id].append(order)
+        
+        memory.store(business_id, "order", {"customer": customer, "total": total}, "Confirmed", True)
+        return {"success": True, "order_id": order_id, "total": total}
+
+action_bot = ActionBot()
+
+# ============ ACTION ENDPOINTS ============
+@app.route('/api/business/<biz_id>/book', methods=['POST'])
+def book_appointment(biz_id):
+    if biz_id not in businesses:
+        return jsonify({"error": "Business not found"}), 404
+    data = request.get_json()
+    result = action_bot.book(
+        biz_id,
+        data.get('customer'),
+        data.get('date'),
+        data.get('time')
+    )
+    return jsonify(result)
+
+@app.route('/api/business/<biz_id>/order', methods=['POST'])
+def place_order(biz_id):
+    if biz_id not in businesses:
+        return jsonify({"error": "Business not found"}), 404
+    data = request.get_json()
+    result = action_bot.order(
+        biz_id,
+        data.get('customer'),
+        data.get('items', [])
+    )
+    return jsonify(result)
+
+@app.route('/api/business/<biz_id>/bookings')
+def get_bookings(biz_id):
+    return jsonify({"bookings": bookings.get(biz_id, [])})
+
+@app.route('/api/business/<biz_id>/orders')
+def get_orders(biz_id):
+    return jsonify({"orders": orders.get(biz_id, [])})
