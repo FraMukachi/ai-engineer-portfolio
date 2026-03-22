@@ -97,3 +97,33 @@ class MemorySystem:
         return trends[::-1]
 
 memory = MemorySystem()
+
+# Groq AI
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
+groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
+
+def get_ai(message, context=""):
+    start = time.time()
+    metrics["total_requests"] += 1
+    
+    if not groq_client:
+        return None
+    
+    try:
+        completion = groq_client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": f"{context}\n{message}"}],
+            max_tokens=500
+        )
+        elapsed = time.time() - start
+        metrics["response_times"].append(elapsed)
+        metrics["avg_response_time"] = sum(metrics["response_times"][-100:]) / min(100, len(metrics["response_times"]))
+        
+        if elapsed > 5:
+            alerts.put({"type": "slow_response", "data": {"time": elapsed}})
+        
+        return completion.choices[0].message.content
+    except Exception as e:
+        metrics["total_errors"] += 1
+        alerts.put({"type": "error", "data": {"error": str(e)}})
+        return None
