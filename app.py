@@ -232,3 +232,82 @@ ADMIN_DASHBOARD = '''<!DOCTYPE html>
     </script>
 </body>
 </html>'''
+
+# API Routes
+@app.route('/')
+def home():
+    return ADMIN_DASHBOARD
+
+@app.route('/health')
+def health():
+    return "OK", 200
+
+@app.route('/api/admin/stats')
+def admin_stats():
+    total = metrics["total_requests"]
+    errors = metrics["total_errors"]
+    success = ((total - errors) / total * 100) if total > 0 else 100
+    
+    return jsonify({
+        "stats": {
+            "total_businesses": len(businesses),
+            "total_bookings": sum(len(b) for b in bookings.values()),
+            "total_orders": sum(len(o) for o in orders.values())
+        },
+        "memory": memory.get_progress(),
+        "trends": memory.get_trends(7),
+        "hourly_activity": dict(metrics["hourly_activity"]),
+        "performance": {
+            "total_requests": metrics["total_requests"],
+            "avg_response_time": round(metrics["avg_response_time"], 3),
+            "success_rate": round(success, 1)
+        }
+    })
+
+@app.route('/api/admin/alerts')
+def admin_alerts():
+    alert_list = []
+    while not alerts.empty():
+        alert_list.append(alerts.get_nowait())
+    for a in alert_list:
+        active_alerts.append({**a, "timestamp": datetime.now().isoformat()})
+    while len(active_alerts) > 20:
+        active_alerts.pop(0)
+    return jsonify({"alerts": active_alerts})
+
+@app.route('/api/business/register', methods=['POST'])
+def register():
+    data = request.get_json()
+    biz_id = str(uuid.uuid4())[:8]
+    businesses[biz_id] = {
+        "id": biz_id,
+        "name": data.get('name'),
+        "email": data.get('email'),
+        "created": datetime.now().isoformat()
+    }
+    return jsonify({"success": True, "business_id": biz_id})
+
+@app.route('/api/businesses')
+def list_businesses():
+    return jsonify({"businesses": list(businesses.values())})
+
+@app.route('/api/ai/chat', methods=['POST'])
+def ai_chat():
+    data = request.get_json()
+    response = get_ai(data.get('message', ''))
+    return jsonify({"response": response or "I'm here to help!"})
+
+@app.route('/api/business/<biz_id>/book', methods=['POST'])
+def book():
+    data = request.get_json()
+    return jsonify(action_bot.book(request.view_args['biz_id'], data.get('customer'), data.get('date'), data.get('time')))
+
+@app.route('/api/business/<biz_id>/order', methods=['POST'])
+def order():
+    data = request.get_json()
+    return jsonify(action_bot.order(request.view_args['biz_id'], data.get('customer'), data.get('items', [])))
+
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 8000))
+    print("BotBase Admin Dashboard Ready")
+    app.run(host='0.0.0.0', port=port)
