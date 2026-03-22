@@ -247,3 +247,98 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
     </script>
 </body>
 </html>'''
+
+# ============ API ROUTES ============
+@app.route('/')
+def home():
+    return DASHBOARD_HTML
+
+@app.route('/health')
+def health():
+    return "OK", 200
+
+@app.route('/business/<biz_id>')
+def business_page(biz_id):
+    return f'''<!DOCTYPE html><html><head><title>Business Details</title><meta name="viewport" content="width=device-width, initial-scale=1"><script src="https://cdn.tailwindcss.com"></script></head><body class="bg-gray-100"><div class="max-w-4xl mx-auto p-6"><div class="bg-white rounded-2xl shadow-xl p-6"><h1 class="text-2xl font-bold mb-4">Business Details</h1><div id="info"></div><a href="/" class="text-purple-600 mt-4 inline-block">← Back</a></div></div><script>fetch('/api/business/{biz_id}').then(r=>r.json()).then(d=>{{document.getElementById('info').innerHTML=`<p><strong>Name:</strong> ${{d.name}}</p><p><strong>Email:</strong> ${{d.email}}</p><p><strong>Type:</strong> ${{d.type}}</p><p><strong>Created:</strong> ${{d.created}}</p>`;}});</script></body></html>'''
+
+@app.route('/api/business/register', methods=['POST'])
+def register():
+    data = request.get_json()
+    biz_id = str(uuid.uuid4())[:8]
+    businesses[biz_id] = {"id": biz_id, "name": data.get('name'), "email": data.get('email'), "type": data.get('type', 'general'), "created": datetime.now().isoformat()}
+    return jsonify({"success": True, "business_id": biz_id})
+
+@app.route('/api/businesses')
+def list_businesses():
+    return jsonify({"businesses": list(businesses.values())})
+
+@app.route('/api/business/<biz_id>')
+def get_business(biz_id):
+    if biz_id not in businesses:
+        return jsonify({"error": "Not found"}), 404
+    return jsonify(businesses[biz_id])
+
+@app.route('/api/business/<biz_id>/query', methods=['POST'])
+def query():
+    biz_id = request.view_args['biz_id']
+    data = request.get_json()
+    question = data.get('question', '')
+    response = get_ai(question, f"Business: {businesses.get(biz_id, {}).get('name', '')}")
+    if not response:
+        response = "I'm here to help!"
+    memory.store(biz_id, "query", {"question": question}, response, True)
+    return jsonify({"response": response})
+
+@app.route('/api/ai/chat', methods=['POST'])
+def ai_chat():
+    data = request.get_json()
+    message = data.get('message', '')
+    response = get_ai(message)
+    if not response:
+        response = "How can I help you today?"
+    return jsonify({"response": response})
+
+@app.route('/api/analytics')
+def analytics():
+    return jsonify({
+        "total_businesses": len(businesses),
+        "total_bookings": sum(len(b) for b in bookings.values()),
+        "total_orders": sum(len(o) for o in orders.values()),
+        "total_learnings": sum(len(memory.interactions.get(biz, [])) for biz in businesses)
+    })
+
+@app.route('/api/bots/status')
+def bots_status():
+    return jsonify({"bots": ["Orchestrator", "Upload", "Analysis", "RAG", "Action"], "groq": groq_client is not None})
+
+@app.route('/api/business/<biz_id>/book', methods=['POST'])
+def book():
+    biz_id = request.view_args['biz_id']
+    data = request.get_json()
+    return jsonify(action_bot.book(biz_id, data.get('customer'), data.get('date'), data.get('time')))
+
+@app.route('/api/business/<biz_id>/order', methods=['POST'])
+def order():
+    biz_id = request.view_args['biz_id']
+    data = request.get_json()
+    return jsonify(action_bot.order(biz_id, data.get('customer'), data.get('items', [])))
+
+@app.route('/api/business/<biz_id>/bookings')
+def get_bookings_route(biz_id):
+    return jsonify({"bookings": bookings.get(biz_id, [])})
+
+@app.route('/api/business/<biz_id>/orders')
+def get_orders_route(biz_id):
+    return jsonify({"orders": orders.get(biz_id, [])})
+
+@app.route('/api/business/<biz_id>/memory')
+def get_memory(biz_id):
+    return jsonify(memory.get(biz_id))
+
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 8000))
+    print("=" * 60)
+    print("🤖 BotBase v4.0 - Beautiful Dashboard Ready!")
+    print(f"🚀 Open: https://ai-engineer-portfolio-production.up.railway.app")
+    print("=" * 60)
+    app.run(host='0.0.0.0', port=port)
