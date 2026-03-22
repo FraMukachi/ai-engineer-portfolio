@@ -89,3 +89,90 @@ def get_ai(message, context=""):
         return completion.choices[0].message.content
     except:
         return None
+
+# ============ BOTS ============
+class UploadBot:
+    def upload(self, business_id, file):
+        doc_id = str(uuid.uuid4())[:8]
+        if business_id not in documents:
+            documents[business_id] = []
+        doc_info = {"id": doc_id, "filename": file.filename, "uploaded_at": datetime.now().isoformat()}
+        documents[business_id].append(doc_info)
+        memory.store(business_id, "upload", {"filename": file.filename}, "Uploaded", True)
+        return {"success": True, "document_id": doc_id}
+
+upload_bot = UploadBot()
+
+class AnalysisBot:
+    def analyze(self, content):
+        import re
+        return {
+            "emails": re.findall(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', content),
+            "phones": re.findall(r'(\+?27|0)[0-9]{9}', content),
+            "prices": re.findall(r'R\s?\d+(?:\.\d{2})?', content)
+        }
+
+analysis_bot = AnalysisBot()
+
+class RAGBot:
+    def __init__(self):
+        self.knowledge = {}
+    
+    def add(self, business_id, content):
+        if business_id not in self.knowledge:
+            self.knowledge[business_id] = []
+        self.knowledge[business_id].append({"content": content, "added": datetime.now().isoformat()})
+        memory.store(business_id, "knowledge", {"length": len(content)}, "Added", True)
+        return {"success": True, "total": len(self.knowledge[business_id])}
+    
+    def search(self, business_id, question):
+        if business_id not in self.knowledge or not self.knowledge[business_id]:
+            return None
+        context = f"Business knowledge: {self.knowledge[business_id][-1]['content'][:300]}"
+        return get_ai(question, context)
+
+rag_bot = RAGBot()
+
+class ActionBot:
+    def book(self, business_id, customer, date, time):
+        booking_id = str(uuid.uuid4())[:8]
+        booking = {"id": booking_id, "customer": customer, "date": date, "time": time, "status": "confirmed", "created": datetime.now().isoformat()}
+        if business_id not in bookings:
+            bookings[business_id] = []
+        bookings[business_id].append(booking)
+        memory.store(business_id, "booking", {"customer": customer, "date": date}, "Confirmed", True)
+        return {"success": True, "booking_id": booking_id}
+    
+    def order(self, business_id, customer, items):
+        order_id = str(uuid.uuid4())[:8]
+        total = sum(i.get('price', 0) * i.get('quantity', 1) for i in items)
+        order = {"id": order_id, "customer": customer, "items": items, "total": total, "status": "confirmed", "created": datetime.now().isoformat()}
+        if business_id not in orders:
+            orders[business_id] = []
+        orders[business_id].append(order)
+        memory.store(business_id, "order", {"customer": customer, "total": total}, "Confirmed", True)
+        return {"success": True, "order_id": order_id, "total": total}
+
+action_bot = ActionBot()
+
+class OrchestratorBot:
+    def __init__(self):
+        self.tasks = {}
+    
+    def create_task(self, business_id, task_type, data):
+        task_id = str(uuid.uuid4())[:8]
+        if task_type == "booking":
+            result = action_bot.book(business_id, data.get('customer'), data.get('date'), data.get('time'))
+        elif task_type == "order":
+            result = action_bot.order(business_id, data.get('customer'), data.get('items', []))
+        elif task_type == "query":
+            context = f"Business: {businesses.get(business_id, {}).get('name', '')}"
+            response = get_ai(data.get('question', ''), context)
+            result = {"response": response or "I'm here to help!"}
+            memory.store(business_id, "orchestrated_query", data, response or "", True)
+        else:
+            result = {"error": "Unknown task type"}
+        self.tasks[task_id] = {"id": task_id, "type": task_type, "result": result, "created": datetime.now().isoformat()}
+        return {"task_id": task_id, "result": result}
+
+orchestrator = OrchestratorBot()
