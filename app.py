@@ -127,3 +127,26 @@ def get_ai(message, context=""):
         metrics["total_errors"] += 1
         alerts.put({"type": "error", "data": {"error": str(e)}})
         return None
+
+# Bots
+class ActionBot:
+    def book(self, business_id, customer, date, time):
+        bid = str(uuid.uuid4())[:8]
+        booking = {"id": bid, "customer": customer, "date": date, "time": time}
+        if business_id not in bookings:
+            bookings[business_id] = []
+        bookings[business_id].append(booking)
+        memory.store(business_id, "booking", {"customer": customer}, "Confirmed", True)
+        return {"success": True, "booking_id": bid}
+    
+    def order(self, business_id, customer, items):
+        oid = str(uuid.uuid4())[:8]
+        total = sum(i.get('price', 0) * i.get('quantity', 1) for i in items)
+        order = {"id": oid, "customer": customer, "total": total}
+        if business_id not in orders:
+            orders[business_id] = []
+        orders[business_id].append(order)
+        memory.store(business_id, "order", {"customer": customer}, "Confirmed", True)
+        return {"success": True, "order_id": oid, "total": total}
+
+action_bot = ActionBot()
