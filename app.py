@@ -176,3 +176,74 @@ class OrchestratorBot:
         return {"task_id": task_id, "result": result}
 
 orchestrator = OrchestratorBot()
+
+# ============ DASHBOARD HTML ============
+DASHBOARD_HTML = '''<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BotBase - AI Business Assistant</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body class="bg-gradient-to-br from-purple-600 to-indigo-600 min-h-screen">
+    <div class="container mx-auto px-4 py-8">
+        <!-- Header -->
+        <div class="bg-white rounded-2xl shadow-xl p-6 mb-8">
+            <div class="flex justify-between items-center">
+                <div class="flex items-center space-x-3">
+                    <div class="text-5xl">🤖</div>
+                    <div><h1 class="text-3xl font-bold text-gray-800">BotBase</h1><p class="text-gray-500">AI Business Assistant with 5 Specialized Bots</p></div>
+                </div>
+                <div class="bg-green-100 px-4 py-2 rounded-full"><div class="flex items-center space-x-2"><div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div><span class="text-green-700">Groq AI Active</span></div></div>
+            </div>
+        </div>
+
+        <!-- Stats -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+            <div class="bg-white rounded-xl p-4 text-center"><i class="fas fa-store text-purple-600 text-2xl mb-2 block"></i><p class="text-2xl font-bold" id="totalBusinesses">0</p><p class="text-gray-500">Businesses</p></div>
+            <div class="bg-white rounded-xl p-4 text-center"><i class="fas fa-calendar-check text-blue-600 text-2xl mb-2 block"></i><p class="text-2xl font-bold" id="totalBookings">0</p><p class="text-gray-500">Bookings</p></div>
+            <div class="bg-white rounded-xl p-4 text-center"><i class="fas fa-shopping-cart text-green-600 text-2xl mb-2 block"></i><p class="text-2xl font-bold" id="totalOrders">0</p><p class="text-gray-500">Orders</p></div>
+            <div class="bg-white rounded-xl p-4 text-center"><i class="fas fa-brain text-yellow-600 text-2xl mb-2 block"></i><p class="text-2xl font-bold" id="totalLearnings">0</p><p class="text-gray-500">AI Learnings</p></div>
+        </div>
+
+        <!-- 5 Bots -->
+        <div class="bg-white rounded-2xl shadow-xl p-6 mb-8">
+            <h2 class="text-xl font-bold mb-4">🤖 Our 5 Specialized AI Bots</h2>
+            <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
+                <div class="text-center p-3 bg-purple-50 rounded-lg"><div class="text-3xl">🎯</div><div class="font-semibold">Orchestrator</div><div class="text-xs text-gray-500">Coordinates all</div></div>
+                <div class="text-center p-3 bg-blue-50 rounded-lg"><div class="text-3xl">📤</div><div class="font-semibold">Upload Bot</div><div class="text-xs text-gray-500">Documents</div></div>
+                <div class="text-center p-3 bg-green-50 rounded-lg"><div class="text-3xl">🔍</div><div class="font-semibold">Analysis Bot</div><div class="text-xs text-gray-500">Insights</div></div>
+                <div class="text-center p-3 bg-yellow-50 rounded-lg"><div class="text-3xl">🧠</div><div class="font-semibold">RAG Bot</div><div class="text-xs text-gray-500">Knowledge</div></div>
+                <div class="text-center p-3 bg-red-50 rounded-lg"><div class="text-3xl">⚡</div><div class="font-semibold">Action Bot</div><div class="text-xs text-gray-500">Bookings/Orders</div></div>
+            </div>
+        </div>
+
+        <!-- Register Business & Chat -->
+        <div class="grid md:grid-cols-2 gap-6 mb-8">
+            <div class="bg-white rounded-2xl shadow-xl p-6"><h2 class="text-xl font-bold mb-4"><i class="fas fa-plus-circle text-purple-600 mr-2"></i>Register Business</h2>
+                <form id="businessForm"><input type="text" id="businessName" placeholder="Business Name" class="w-full p-2 border rounded-lg mb-3"><input type="email" id="businessEmail" placeholder="Email" class="w-full p-2 border rounded-lg mb-3"><select id="businessType" class="w-full p-2 border rounded-lg mb-3"><option>Restaurant</option><option>Salon</option><option>Clinic</option><option>Retail</option></select><button type="submit" class="w-full bg-purple-600 text-white py-2 rounded-lg">Register</button></form><div id="registerResult" class="mt-3 text-sm"></div>
+            </div>
+            <div class="bg-white rounded-2xl shadow-xl p-6 flex flex-col h-96"><h2 class="text-xl font-bold mb-4"><i class="fas fa-comment-dots text-purple-600 mr-2"></i>AI Chat</h2>
+                <div id="chatMessages" class="flex-1 overflow-y-auto mb-4 space-y-2"><div class="bg-gray-100 rounded-lg p-2">Hello! Ask me anything about your business.</div></div>
+                <div class="flex space-x-2"><input type="text" id="chatInput" placeholder="Type message..." class="flex-1 p-2 border rounded-lg"><button onclick="sendMessage()" class="bg-purple-600 text-white px-4 rounded-lg">Send</button></div>
+            </div>
+        </div>
+
+        <!-- Businesses List -->
+        <div class="bg-white rounded-2xl shadow-xl p-6"><h2 class="text-xl font-bold mb-4"><i class="fas fa-building text-purple-600 mr-2"></i>Your Businesses</h2><div id="businessesList" class="space-y-2">Loading...</div></div>
+    </div>
+
+    <script>
+        const API_URL = window.location.origin;
+        async function loadAnalytics() { try { let r=await fetch(API_URL+'/api/analytics'); let d=await r.json(); document.getElementById('totalBusinesses').innerText=d.total_businesses||0; document.getElementById('totalBookings').innerText=d.total_bookings||0; document.getElementById('totalOrders').innerText=d.total_orders||0; document.getElementById('totalLearnings').innerText=d.total_learnings||0; } catch(e){} }
+        async function loadBusinesses() { try { let r=await fetch(API_URL+'/api/businesses'); let d=await r.json(); let b=d.businesses||[]; let html=b.length?b.map(biz=>'<div class="border rounded-lg p-3 flex justify-between items-center"><div><b>'+biz.name+'</b><br><small>'+biz.email+'</small></div><button onclick="viewBusiness(\''+biz.id+'\')" class="text-purple-600">View</button></div>').join(''):'<p class="text-center text-gray-500">No businesses yet</p>'; document.getElementById('businessesList').innerHTML=html; } catch(e){} }
+        document.getElementById('businessForm').addEventListener('submit',async(e)=>{ e.preventDefault(); let name=document.getElementById('businessName').value; let email=document.getElementById('businessEmail').value; let type=document.getElementById('businessType').value; try{ let r=await fetch(API_URL+'/api/business/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,email,type})}); let d=await r.json(); if(d.success){ document.getElementById('registerResult').innerHTML='<div class="bg-green-100 text-green-700 p-2 rounded">✅ Business registered!</div>'; loadBusinesses(); loadAnalytics(); } }catch(e){} });
+        async function sendMessage(){ let input=document.getElementById('chatInput'); let msg=input.value.trim(); if(!msg)return; let msgs=document.getElementById('chatMessages'); msgs.innerHTML+='<div class="flex justify-end"><div class="bg-purple-600 text-white rounded-lg p-2">'+msg+'</div></div>'; input.value=''; try{ let r=await fetch(API_URL+'/api/ai/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:msg})}); let d=await r.json(); msgs.innerHTML+='<div class="flex justify-start"><div class="bg-gray-100 rounded-lg p-2">🤖 '+d.response+'</div></div>'; msgs.scrollTop=msgs.scrollHeight; }catch(e){} }
+        function viewBusiness(id){ window.location.href='/business/'+id; }
+        loadAnalytics(); loadBusinesses(); setInterval(()=>{ loadAnalytics(); loadBusinesses(); },30000);
+        document.getElementById('chatInput').addEventListener('keypress',(e)=>{ if(e.key==='Enter') sendMessage(); });
+    </script>
+</body>
+</html>'''
